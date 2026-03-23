@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Familiar — Life Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.7/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-base: #0a0e17;
+  --bg-card: #111827;
+  --border: #1e293b;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-dim: #64748b;
+  --text-faint: #475569;
+  --text-ghost: #334155;
+  --accent: #8b5cf6;
+  --accent-glow: #7c3aed;
+  --green: #22c55e;
+  --green-light: #86efac;
+  --yellow: #facc15;
+  --orange: #f97316;
+  --purple: #7c3aed;
+  --cyan: #22d3ee;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-logo {
+  width: 30px; height: 30px; border-radius: 7px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; color: white;
+}
+
+.header-title {
+  font-family: var(--font-mono);
+  font-weight: 700; font-size: 14px;
+  letter-spacing: 0.04em; color: var(--text-primary);
+}
+
+.header-sub {
+  font-size: 10px; color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.tabs {
+  display: flex; gap: 2px;
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 5px 11px; border: none; border-radius: 5px;
+  font-size: 11px; font-weight: 600; font-family: var(--font-mono);
+  cursor: default; background: transparent; color: var(--text-ghost);
+  white-space: nowrap; display: flex; align-items: center; gap: 4px;
+  opacity: 0.5;
+}
+
+.tab.active {
+  background: var(--border); color: var(--text-primary); opacity: 1;
+}
+
+.container {
+  max-width: 1100px; margin: 0 auto;
+  padding: 16px 16px 40px;
+}
+
+.cards-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px; margin-bottom: 14px;
+}
+
+.card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+}
+
+.card-label {
+  font-size: 10px; color: var(--text-dim);
+  font-family: var(--font-mono);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.card-value {
+  font-size: 26px; font-weight: 700;
+  color: var(--text-primary); font-family: var(--font-mono);
+}
+
+.card-unit {
+  font-size: 12px; color: var(--text-dim); font-weight: 500;
+  margin-left: 4px;
+}
+
+.card-trend {
+  margin-top: 5px; font-size: 10px;
+  font-family: var(--font-mono); font-weight: 600;
+}
+
+.trend-up { color: var(--orange); }
+.trend-down { color: var(--green); }
+
+.panel {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
+}
+
+.panel-title {
+  font-size: 13px; font-weight: 600; color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.heatmap-scroll { overflow-x: auto; padding-bottom: 4px; }
+
+.heatmap-grid {
+  display: inline-grid;
+  grid-template-columns: 30px repeat(31, 1fr);
+  gap: 2px;
+  min-width: 520px;
+}
+
+.heatmap-label {
+  font-size: 9px; font-family: var(--font-mono);
+  color: var(--text-secondary); font-weight: 500;
+  display: flex; align-items: center;
+  padding-right: 4px;
+}
+
+.heatmap-label.faded { color: var(--text-ghost); }
+
+.heatmap-day-header {
+  font-size: 7px; font-family: var(--font-mono);
+  color: var(--text-dim); text-align: center;
+  line-height: 14px;
+}
+
+.heatmap-cell {
+  aspect-ratio: 1; border-radius: 2px;
+  cursor: pointer; position: relative;
+  transition: transform 0.1s;
+  min-width: 12px; min-height: 12px;
+}
+
+.heatmap-cell:hover { transform: scale(1.35); z-index: 2; }
+
+.heatmap-pad {
+  min-width: 12px; min-height: 12px;
+}
+
+.legend {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 10px; margin-left: 30px; flex-wrap: wrap;
+}
+
+.legend-label {
+  font-size: 8px; font-family: var(--font-mono);
+  color: var(--text-dim);
+}
+
+.legend-item {
+  display: flex; align-items: center; gap: 3px;
+}
+
+.legend-swatch {
+  width: 10px; height: 10px; border-radius: 2px;
+}
+
+.tooltip {
+  display: none; position: fixed;
+  background: #0f172a; border: 1px solid var(--text-ghost);
+  border-radius: 6px; padding: 4px 8px;
+  font-size: 10px; font-family: var(--font-mono);
+  color: var(--text-primary); white-space: nowrap;
+  pointer-events: none; z-index: 100;
+  transform: translate(-50%, -120%);
+}
+
+.charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px; margin-bottom: 14px;
+}
+
+@media (max-width: 700px) {
+  .charts-row { grid-template-columns: 1fr; }
+  .card-value { font-size: 22px; }
+  .heatmap-cell { min-width: 9px; min-height: 9px; }
+  .heatmap-label { font-size: 8px; }
+  .heatmap-grid { min-width: 380px; gap: 1px; }
+  .header { padding: 12px 14px; }
+  .container { padding: 12px 12px 32px; }
+  .tab { padding: 4px 8px; font-size: 10px; }
+}
+
+.summary-table {
+  width: 100%; border-collapse: collapse;
+  font-family: var(--font-mono); font-size: 11px;
+}
+
+.summary-table th {
+  padding: 7px 10px; text-align: left;
+  color: var(--text-dim); font-weight: 500;
+  font-size: 9px; text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--border);
+}
+
+.summary-table td {
+  padding: 9px 10px; color: var(--text-secondary);
+}
+
+.summary-table tr.current td { color: var(--text-primary); }
+.summary-table tr.past td { color: var(--text-ghost); }
+.td-protein { color: var(--cyan) !important; }
+.td-fat { color: var(--orange) !important; }
+.td-carbs { color: #a78bfa !important; }
+.td-fasting { color: var(--purple) !important; }
+.td-bold { font-weight: 600; }
+
+.insight {
+  display: flex; gap: 10px;
+  padding: 10px 12px; border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.insight-warn { background: rgba(120,53,15,0.08); border: 1px solid rgba(120,53,15,0.2); }
+.insight-alert { background: rgba(127,29,29,0.08); border: 1px solid rgba(127,29,29,0.2); }
+.insight-good { background: rgba(5,46,22,0.08); border: 1px solid rgba(5,46,22,0.2); }
+.insight-info { background: #0f172a; border: 1px solid var(--border); }
+
+.insight-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+.insight-text { font-size: 12px; line-height: 1.6; color: #cbd5e1; }
+
+.insights-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+}
+
+.insights-badge {
+  font-size: 9px; font-family: var(--font-mono);
+  color: var(--accent-glow); background: rgba(124,58,237,0.1);
+  padding: 2px 6px; border-radius: 4px;
+}
+
+.insights-footer {
+  margin-top: 10px; font-size: 9px; color: var(--text-faint);
+  font-family: var(--font-mono); text-align: right;
+}
+
+.chart-container {
+  position: relative; width: 100%;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-brand">
+    <div class="header-logo">&#9679;</div>
+    <div>
+      <div class="header-title">FAMILIAR</div>
+      <div class="header-sub">Quantified Self &middot; Life Dashboard</div>
+    </div>
+  </div>
+  <div class="tabs">
+    <div class="tab active">&#127813; Food</div>
+    <div class="tab">&#128564; Sleep</div>
+    <div class="tab">&#129504; Mood</div>
+    <div class="tab">&#127947;&#65039; Gym</div>
+    <div class="tab">&#128176; Finance</div>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- SUMMARY CARDS (replaced by generator) -->
+<!-- ── BEGIN CARDS ── -->
+<div class="cards-row">
+  <div class="card">
+    <div class="card-label">Avg Daily Calories</div>
+    <div><span class="card-value" id="card-kcal">—</span><span class="card-unit">kcal</span></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Avg Protein</div>
+    <div><span class="card-value" id="card-protein">—</span><span class="card-unit">g/day</span></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Avg Fat</div>
+    <div><span class="card-value" id="card-fat">—</span><span class="card-unit">g/day</span></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Avg Carbs</div>
+    <div><span class="card-value" id="card-carbs">—</span><span class="card-unit">g/day</span></div>
+  </div>
+</div>
+<!-- ── END CARDS ── -->
+
+<!-- HEATMAP -->
+<div class="panel">
+  <div class="panel-title">Daily Calorie Heatmap &mdash; <span id="heatmap-year">2026</span></div>
+  <div class="heatmap-scroll">
+    <div class="heatmap-grid" id="heatmapGrid"></div>
+  </div>
+  <div class="legend">
+    <span class="legend-label">Less</span>
+    <div class="legend-item"><div class="legend-swatch" style="background:#1e293b"></div><span class="legend-label">No data</span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#7c3aed"></div><span class="legend-label">Fasting</span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#22c55e"></div><span class="legend-label">&lt;2000</span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#86efac"></div><span class="legend-label">2&ndash;2.5k</span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#facc15"></div><span class="legend-label">2.5&ndash;3k</span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#f97316"></div><span class="legend-label">&gt;3000</span></div>
+    <span class="legend-label">More</span>
+  </div>
+</div>
+<div class="tooltip" id="heatTooltip"></div>
+
+<!-- DAILY TREND CHART -->
+<div class="panel">
+  <div class="panel-title">Daily Calories &mdash; <span id="trend-month-title">March 2026</span></div>
+  <div class="chart-container" style="height:240px">
+    <canvas id="trendChart"></canvas>
+  </div>
+</div>
+
+<!-- MACRONUTRIENTS -->
+<div class="charts-row">
+  <div class="panel">
+    <div class="panel-title">Macro Split (% of calories)</div>
+    <div class="chart-container" style="height:210px">
+      <canvas id="donutChart"></canvas>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Daily Avg Macros (grams)</div>
+    <div class="chart-container" style="height:210px">
+      <canvas id="macroBar"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- MONTHLY TABLE -->
+<div class="panel">
+  <div class="panel-title">Monthly Summary</div>
+  <div style="overflow-x:auto">
+    <table class="summary-table">
+      <thead>
+        <tr>
+          <th>Month</th><th>Days Tracked</th><th>Avg Kcal</th>
+          <th>Avg Protein</th><th>Avg Fat</th><th>Avg Carbs</th><th>Fasting</th>
+        </tr>
+      </thead>
+      <tbody id="monthly-table-body">
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- INSIGHTS -->
+<div class="panel">
+  <div class="insights-header">
+    <span style="font-size:18px">&#128161;</span>
+    <span style="font-size:13px;font-weight:600">Agent Insights</span>
+    <span class="insights-badge">AI-generated</span>
+  </div>
+  <div id="insights-content">
+    <div class="insight insight-info">
+      <span class="insight-icon">&#128300;</span>
+      <span class="insight-text">Run the dashboard generator with --insights to populate this section with AI-generated observations about your eating patterns.</span>
+    </div>
+  </div>
+  <div class="insights-footer" id="insights-footer">
+    Generated <span id="generated-date">—</span>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<script>
+// ── BEGIN GENERATED DATA ──
+const YEAR_DATA = {};
+const CURRENT_MONTH = [];
+const MACROS = {protein: 0, fat: 0, carbs: 0};
+const CURRENT_MONTH_NAME = "March 2026";
+const CURRENT_YEAR = 2026;
+const MONTHLY_ROWS = [];
+const GENERATED_DATE = "";
+const INSIGHTS_HTML = "";
+// ── END GENERATED DATA ──
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS_IN = [31,28,31,30,31,30,31,31,30,31,30,31];
+
+// Populate cards
+document.getElementById('card-kcal').textContent = Math.round(MACROS.protein * 4 + MACROS.fat * 9 + MACROS.carbs * 4 > 0 ? (function() {
+  // Calculate from CURRENT_MONTH data
+  const tracked = CURRENT_MONTH.filter(d => d.kcal !== null);
+  if (tracked.length === 0) return '—';
+  const avg = tracked.reduce((s, d) => s + d.kcal, 0) / tracked.length;
+  return avg.toLocaleString(undefined, {maximumFractionDigits: 0});
+})() : '—');
+document.getElementById('card-protein').textContent = Math.round(MACROS.protein);
+document.getElementById('card-fat').textContent = Math.round(MACROS.fat);
+document.getElementById('card-carbs').textContent = Math.round(MACROS.carbs);
+document.getElementById('trend-month-title').textContent = CURRENT_MONTH_NAME;
+document.getElementById('heatmap-year').textContent = CURRENT_YEAR;
+document.getElementById('generated-date').textContent = GENERATED_DATE;
+
+// Populate cards avg kcal properly
+(function() {
+  const tracked = CURRENT_MONTH.filter(d => d.kcal !== null);
+  if (tracked.length > 0) {
+    const avg = tracked.reduce((s, d) => s + d.kcal, 0) / tracked.length;
+    document.getElementById('card-kcal').textContent = Math.round(avg).toLocaleString();
+  }
+})();
+
+// Populate monthly table
+(function() {
+  const tbody = document.getElementById('monthly-table-body');
+  MONTHLY_ROWS.forEach((row, i) => {
+    const tr = document.createElement('tr');
+    tr.className = i === 0 ? 'current' : 'past';
+    tr.innerHTML = `<td class="td-bold">${row.month}</td><td>${row.days_tracked}/${row.days_in_month}</td><td>${Math.round(row.avg_kcal).toLocaleString()}</td><td class="td-protein">${Math.round(row.avg_protein)}g</td><td class="td-fat">${Math.round(row.avg_fat)}g</td><td class="td-carbs">${Math.round(row.avg_carbs)}g</td><td class="td-fasting">${row.fasting_days}</td>`;
+    tbody.appendChild(tr);
+  });
+})();
+
+// Populate insights
+if (INSIGHTS_HTML) {
+  document.getElementById('insights-content').innerHTML = INSIGHTS_HTML;
+}
+
+function heatColor(entry) {
+  if (!entry) return '#1e293b';
+  if (entry.fasting || entry.kcal === 0) return '#7c3aed';
+  if (entry.kcal < 2000) return '#22c55e';
+  if (entry.kcal <= 2500) return '#86efac';
+  if (entry.kcal <= 3000) return '#facc15';
+  return '#f97316';
+}
+
+// Build heatmap
+(function() {
+  const grid = document.getElementById('heatmapGrid');
+  const tip = document.getElementById('heatTooltip');
+
+  const corner = document.createElement('div');
+  grid.appendChild(corner);
+  for (let d = 1; d <= 31; d++) {
+    const el = document.createElement('div');
+    el.className = 'heatmap-day-header';
+    el.textContent = d % 5 === 0 ? d : '';
+    grid.appendChild(el);
+  }
+
+  for (let mi = 0; mi < 12; mi++) {
+    const label = document.createElement('div');
+    label.className = 'heatmap-label' + (mi > 2 ? ' faded' : '');
+    label.textContent = MONTHS[mi];
+    grid.appendChild(label);
+
+    for (let d = 1; d <= 31; d++) {
+      if (d > DAYS_IN[mi]) {
+        const pad = document.createElement('div');
+        pad.className = 'heatmap-pad';
+        grid.appendChild(pad);
+        continue;
+      }
+      const entry = YEAR_DATA[mi + '-' + d] || null;
+      const cell = document.createElement('div');
+      cell.className = 'heatmap-cell';
+      cell.style.background = heatColor(entry);
+
+      const tipText = entry
+        ? (entry.fasting ? MONTHS[mi]+' '+d+': Fasting day' : MONTHS[mi]+' '+d+': '+entry.kcal.toLocaleString()+' kcal')
+        : MONTHS[mi]+' '+d+': No data';
+
+      cell.addEventListener('mouseenter', function(e) {
+        tip.textContent = tipText;
+        tip.style.display = 'block';
+        const r = e.target.getBoundingClientRect();
+        tip.style.left = (r.left + r.width/2) + 'px';
+        tip.style.top = r.top + 'px';
+      });
+      cell.addEventListener('mouseleave', function() { tip.style.display = 'none'; });
+      cell.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        tip.textContent = tipText;
+        tip.style.display = 'block';
+        const r = e.target.getBoundingClientRect();
+        tip.style.left = (r.left + r.width/2) + 'px';
+        tip.style.top = (r.top - 30) + 'px';
+        setTimeout(() => { tip.style.display = 'none'; }, 1500);
+      }, { passive: false });
+
+      grid.appendChild(cell);
+    }
+  }
+})();
+
+// Chart.js defaults
+Chart.defaults.color = '#64748b';
+Chart.defaults.borderColor = '#1e293b';
+Chart.defaults.font.family = "'JetBrains Mono', monospace";
+Chart.defaults.font.size = 10;
+
+// Trend chart
+(function() {
+  const data = CURRENT_MONTH.filter(d => d.kcal !== null);
+  if (data.length === 0) return;
+  const labels = data.map(d => d.day);
+  const vals = data.map(d => d.kcal);
+  const target = data.map(() => 2200);
+
+  new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Calories',
+          data: vals,
+          borderColor: '#8b5cf6',
+          backgroundColor: 'rgba(139,92,246,0.1)',
+          borderWidth: 2.5,
+          pointRadius: 3,
+          pointBackgroundColor: '#8b5cf6',
+          pointBorderColor: '#0a0e17',
+          pointBorderWidth: 2,
+          pointHoverRadius: 5,
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: 'Target (2,200)',
+          data: target,
+          borderColor: '#475569',
+          borderWidth: 1.5,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top', labels: { boxWidth: 12, padding: 16, font: { size: 10 } } },
+        tooltip: {
+          backgroundColor: '#0f172a',
+          borderColor: '#334155',
+          borderWidth: 1,
+          titleFont: { size: 11 },
+          bodyFont: { size: 11 },
+          callbacks: {
+            label: (item) => item.dataset.label + ': ' + item.raw.toLocaleString() + ' kcal'
+          }
+        }
+      },
+      scales: {
+        y: { min: 0, max: 4000, grid: { color: '#1e293b' }, ticks: { stepSize: 1000 } },
+        x: { grid: { display: false }, ticks: { callback: (v, i) => labels[i] % 5 === 0 ? labels[i] : '' } }
+      }
+    }
+  });
+})();
+
+// Donut chart
+(function() {
+  const totalCal = MACROS.protein * 4 + MACROS.fat * 9 + MACROS.carbs * 4;
+  if (totalCal === 0) return;
+  const pPct = Math.round((MACROS.protein * 4 / totalCal) * 100);
+  const fPct = Math.round((MACROS.fat * 9 / totalCal) * 100);
+  const cPct = 100 - pPct - fPct;
+
+  new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Protein ' + pPct + '%', 'Fat ' + fPct + '%', 'Carbs ' + cPct + '%'],
+      datasets: [{
+        data: [pPct, fPct, cPct],
+        backgroundColor: ['#22d3ee', '#f97316', '#a78bfa'],
+        borderWidth: 0,
+        hoverOffset: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '60%',
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { boxWidth: 10, padding: 12, font: { size: 11 } }
+        },
+        tooltip: {
+          backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1,
+          callbacks: { label: (item) => item.label }
+        }
+      }
+    }
+  });
+})();
+
+// Macro bar chart
+(function() {
+  if (MACROS.protein === 0 && MACROS.fat === 0 && MACROS.carbs === 0) return;
+  new Chart(document.getElementById('macroBar'), {
+    type: 'bar',
+    data: {
+      labels: ['Protein', 'Fat', 'Carbs'],
+      datasets: [{
+        data: [MACROS.protein, MACROS.fat, MACROS.carbs],
+        backgroundColor: ['#22d3ee', '#f97316', '#a78bfa'],
+        borderRadius: 4,
+        barThickness: 40,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1,
+          callbacks: { label: (item) => item.raw + 'g' }
+        }
+      },
+      scales: {
+        y: { grid: { color: '#1e293b' }, beginAtZero: true },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

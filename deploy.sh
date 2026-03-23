@@ -105,6 +105,19 @@ else
     ok "Copied ${file_count} files to ${DEST_DIR}"
 fi
 
+# ── Seed workspace files ─────────────────────────────────────────────
+WORKSPACE="${HOME}/.openclaw/workspace"
+FOOD_DIR="${WORKSPACE}/food-tracker"
+mkdir -p "$FOOD_DIR"
+
+# Copy personal-foods.yaml to workspace if not already there
+if [ ! -f "${FOOD_DIR}/personal-foods.yaml" ]; then
+    cp "${DEST_DIR}/references/personal-foods.yaml" "${FOOD_DIR}/personal-foods.yaml"
+    ok "Seeded ${FOOD_DIR}/personal-foods.yaml (first install)"
+else
+    info "Workspace personal-foods.yaml already exists — not overwriting"
+fi
+
 # ── Verify ───────────────────────────────────────────────────────────
 echo ""
 info "Installed files:"

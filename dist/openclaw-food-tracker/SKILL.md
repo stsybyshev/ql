@@ -21,12 +21,23 @@ Log food intake, estimate calories and macros, and produce summaries. All data i
 
 ## File Locations
 
-All files are stored relative to the agent's workspace directory:
+There are two directories. Do NOT confuse them:
 
-- **Monthly logs:** `food-tracker/YYYY-MM.md` (one file per calendar month)
-- **Personal food cache:** `{baseDir}/references/personal-foods.yaml` (your learned foods — checked first)
-- **Popular food cache:** `{baseDir}/references/popular-foods.yaml` (seed staples — checked second)
-- **Template:** `{baseDir}/assets/monthly-template.md`
+1. **Skill directory** (READ-ONLY — never write here, never create files here):
+   `skills/openclaw-food-tracker/`
+   - `references/popular-foods.yaml` — seed food database (read-only, never modify)
+   - `references/personal-foods.yaml` — initial personal foods (read-only copy)
+   - `assets/monthly-template.md` — template for new month files (read-only)
+
+2. **Workspace directory** (READ-WRITE — this is where you read and write user data):
+   - `food-tracker/YYYY-MM.md` — monthly food logs (append-only, one file per month)
+   - `food-tracker/personal-foods.yaml` — user's learned foods (read-write, checked FIRST before the seed database)
+
+When logging food, ALWAYS:
+- Read `food-tracker/personal-foods.yaml` first (workspace — user's learned foods)
+- Then read `skills/openclaw-food-tracker/references/popular-foods.yaml` (skill dir — seed database)
+- Write new entries ONLY to files in `food-tracker/` (workspace)
+- NEVER write to or create files in `skills/` or `references/`
 
 ## Step 1: Recognise Intent
 
@@ -47,7 +58,7 @@ CRITICAL: If unsure whether the message is food logging or general conversation,
 
 For each food item mentioned in the user message:
 
-1. Read `{baseDir}/references/personal-foods.yaml` first, then `{baseDir}/references/popular-foods.yaml`
+1. Read `food-tracker/personal-foods.yaml` first (workspace), then `skills/openclaw-food-tracker/references/popular-foods.yaml` (skill dir, read-only)
 2. For each food mentioned, check if the food name or any alias matches (case-insensitive, partial match OK). A personal-foods match takes priority over a popular-foods match.
 3. If match found:
    - Use `kcal_per_unit`, `protein_per_unit`, `fat_per_unit`, `carbs_per_unit` from the cache entry
@@ -73,7 +84,7 @@ User says "pad thai" → no cache match → estimate from general knowledge → 
 
 1. Determine the current date and time (use message timestamp if available, otherwise current time). Format datetime as `DD-MM-YYYY HH:MM` (24h).
 2. Determine the file path: `food-tracker/YYYY-MM.md` where YYYY-MM matches the current month
-3. If the file does not exist, create it using this exact template (replace the heading with the full month name and year, e.g. "March 2026", "August 2025"):
+3. Read the file first. If it already exists, skip to step 4 — do NOT overwrite, recreate, or replace an existing file. Only if the file does not exist, create a new one using this exact template (replace the heading with the full month name and year, e.g. "March 2026", "August 2025"):
 
 ```markdown
 # Food Log — March 2026
@@ -184,7 +195,7 @@ When the user explicitly asks to save a food for future reuse:
 
 1. Confirm with the user: what name, typical quantity, and unit to use
 2. Determine nutrition values from the most recent log entry for that food, or ask the user
-3. Append a new entry to `{baseDir}/references/personal-foods.yaml`:
+3. Append a new entry to `food-tracker/personal-foods.yaml` (in the workspace, NOT in the skill directory):
 
 ```yaml
 - name: eggs benedict
@@ -201,7 +212,7 @@ When the user explicitly asks to save a food for future reuse:
 
 4. CRITICAL rules:
    - Only save after explicit user confirmation — never save speculatively
-   - Always write to `personal-foods.yaml` — never modify `popular-foods.yaml`
+   - Always write to `food-tracker/personal-foods.yaml` (workspace) — never modify `popular-foods.yaml` in the skill directory
    - If an alias already matches an existing entry in personal-foods.yaml, update that entry instead of creating a duplicate
    - Always set `source: learned`
 5. Confirm to the user:
@@ -244,7 +255,7 @@ If the user says "I'm fasting today", "fasting day", "water fast", or similar �
 
 ## Constraints
 
-- **Append-only:** Never delete or modify existing rows in the monthly log. Corrections are new rows.
+- **Append-only:** Never delete, overwrite, or modify existing rows in the monthly log. Never replace or recreate a monthly file that already exists. Only append new rows to the end of the existing table. Corrections are new rows.
 - **One shot:** This skill may run in a subagent without conversation history. Produce a complete result (log entry + response) from a single user message.
 - **No external APIs:** Resolve from cache or estimate from general knowledge. Do not call external nutrition APIs.
 - **File format:** The monthly log table must be valid markdown. Every row must have exactly 14 pipe-separated columns matching the header.

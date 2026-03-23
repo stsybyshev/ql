@@ -281,6 +281,17 @@
   notes: "Blue affinoise cheese per 100g"
   source: learned
 
+- name: Blue stilton cheese
+  aliases: [stilton, stilton cheese]
+  qty_default: 1
+  unit: 100g
+  kcal_per_unit: 397
+  protein_per_unit: 21.4
+  fat_per_unit: 32.2
+  carbs_per_unit: 4.9
+  notes: "Waitrose Cropwell bBishop blue stilton cheese per 100g"
+  source: learned  
+
 # === DRINKS ===
 
 - name: pomegranate juice
