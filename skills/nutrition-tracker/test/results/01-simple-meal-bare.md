@@ -1,0 +1,1 @@
+Solid breakfast. Eggs are solid protein, and black coffee is a clean way to start the day. How are you feeling energy-wise?
