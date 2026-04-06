@@ -9,7 +9,7 @@ import os
 
 from mcp.server.fastmcp import FastMCP
 
-from food_cache import append_personal_food, search_foods
+from food_cache import append_personal_food, get_daily_totals, log_food_entry, search_foods
 
 # --- Config from env vars ---
 PERSONAL_FOODS_PATH = os.environ.get(
@@ -21,6 +21,10 @@ POPULAR_FOODS_PATH = os.environ.get(
     os.path.expanduser(
         "~/.openclaw/workspace/skills/openclaw-food-tracker/references/popular-foods.yaml"
     ),
+)
+FOOD_LOG_DIR = os.environ.get(
+    "FOOD_LOG_DIR",
+    os.path.expanduser("~/.openclaw/workspace/food-tracker"),
 )
 
 mcp = FastMCP(
@@ -83,6 +87,63 @@ def add_personal_food(
         "notes": notes,
     }
     return append_personal_food(entry, PERSONAL_FOODS_PATH)
+
+
+@mcp.tool()
+def log_food(
+    datetime: str,
+    food: str,
+    qty: float,
+    unit: str,
+    kcal_per_unit: float,
+    protein_per_unit: float,
+    fat_per_unit: float,
+    carbs_per_unit: float,
+    source: str,
+    confidence: float,
+) -> dict:
+    """Append a food entry to the monthly log and return today's running totals.
+
+    Call this after resolving the food (via lookup_food or estimation).
+    The tool handles file creation, row formatting, and total calculation.
+
+    Args:
+        datetime: When the food was consumed, in DD-MM-YYYY HH:MM format (24h)
+        food: Food name, capitalised (e.g. "Scrambled eggs", "Black coffee")
+        qty: Quantity consumed (e.g. 3, 0.5, 1)
+        unit: Serving unit (e.g. "egg", "100g", "serving", "cup", "medium")
+        kcal_per_unit: Kilocalories per unit
+        protein_per_unit: Grams of protein per unit
+        fat_per_unit: Grams of fat per unit
+        carbs_per_unit: Grams of carbs per unit
+        source: One of: cache_lookup, text_estimate, photo_estimate, photo_label
+        confidence: Float 0-1 (cache_lookup=0.95, text_estimate=0.4-0.7, photo_estimate=0.3-0.5)
+    """
+    return log_food_entry(
+        dt_str=datetime,
+        food=food,
+        qty=qty,
+        unit=unit,
+        protein_per_unit=protein_per_unit,
+        fat_per_unit=fat_per_unit,
+        carbs_per_unit=carbs_per_unit,
+        kcal_per_unit=kcal_per_unit,
+        source=source,
+        confidence=confidence,
+        log_dir=FOOD_LOG_DIR,
+    )
+
+
+@mcp.tool()
+def get_todays_totals(date: str) -> dict:
+    """Get all food log entries and total nutrition for a specific date.
+
+    Use this for daily summaries or to check what was eaten on a given day.
+
+    Args:
+        date: Date to query in DD-MM-YYYY format (e.g. "04-04-2026")
+    """
+    return get_daily_totals(date_str=date, log_dir=FOOD_LOG_DIR)
 
 
 if __name__ == "__main__":
