@@ -10,10 +10,10 @@
 body_weight_kg: 90
 
 # ── Daily targets ──
-calories_target: 2500
-protein_target_g: 144          # 1.6 g/kg × 90kg
-fat_target_g: 78               # ~28% of 2500 kcal
-carbs_target_g: 295            # ~47% of 2500 kcal
+calories_target: 2700
+protein_target_g: 170          # 1.6 g/kg × 90kg
+fat_target_g: 80               # ~28% of 2700 kcal
+carbs_target_g: 330            # ~47% of 2700 kcal
 
 # ── Protein per kg body weight target ──
 # Reference ranges:
@@ -44,16 +44,16 @@ macro_split_target:
 #   kcal ≥ elevated_max:        orange
 heatmap:
   fasting_max: 0
-  low_max: 2000
-  normal_max: 2500
-  elevated_max: 3000
+  low_max: 2100
+  normal_max: 2700
+  elevated_max: 3100
 
 # ── Meal timing ──
 # Hour boundaries for the three time-of-day slots.
 # Used by generate.py to classify meals into Morning/Midday/Evening.
 # Used by the portal for the timeline axis range.
 meal_timing:
-  timeline_start: 6            # axis starts at 6:00
+  timeline_start: 5            # axis starts at 6:00
   timeline_end: 22             # axis ends at 22:00
   morning_end: 11              # Morning = 6:00–10:59
   midday_end: 15               # Midday  = 11:00–14:59

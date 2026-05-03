@@ -38,6 +38,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("food-tracker-mcp")
 
+def _touch_dirty_flag() -> None:
+    """Signal the dashboard regen cron that new data is available."""
+    flag = os.path.join(FOOD_LOG_DIR, ".dashboard_dirty")
+    try:
+        open(flag, "a").close()
+        logger.info("dirty flag set")
+    except OSError as e:
+        logger.warning("could not set dirty flag: %s", e)
+
+
 mcp = FastMCP(
     "food-cache",
     instructions="Food cache lookup and management. Use lookup_food to find nutrition info for foods. Use add_personal_food to save new foods for future reuse.",
@@ -108,6 +118,7 @@ def add_personal_food(
     try:
         result = append_personal_food(entry, PERSONAL_FOODS_PATH)
         logger.info("tool=add_personal_food name=%r result=%s", name, result.get("status", result))
+        _touch_dirty_flag()
         return result
     except Exception as e:
         logger.error("tool=add_personal_food name=%r error=%s", name, e)
@@ -160,6 +171,7 @@ def log_food(
             log_dir=FOOD_LOG_DIR,
         )
         logger.info("tool=log_food food=%r result=%s", food, result.get("status", result))
+        _touch_dirty_flag()
         return result
     except Exception as e:
         logger.error("tool=log_food food=%r error=%s", food, e)

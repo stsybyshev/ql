@@ -51,7 +51,7 @@ case "${1:-sync}" in
             if [ -f "$src" ]; then
                 dest="$REMOTE:$REMOTE_PATH/$(basename "$src")"
                 echo "Syncing $src → $dest"
-                rclone copyto "$src" "$dest"
+                rclone copyto --checksum "$src" "$dest"
             else
                 echo "SKIP (not found): $src"
             fi

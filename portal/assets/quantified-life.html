@@ -162,12 +162,20 @@ function bar(p, color) { return `<div class="bar-track"><div class="bar-fill" st
 function renderSummary() {
   const sc = W.summary_cards || {};
   const cards = sc.cards || [];
-  $('summary-cards').innerHTML = cards.map(c => `
-    <div class="summary-card">
+  $('summary-cards').innerHTML = cards.map(c => {
+    const pct = c.delta_pct;
+    let trendColor = 'var(--dim)';
+    if (pct !== null && pct !== undefined && Math.abs(pct) > 10) {
+      const up = pct > 0;
+      if (c.macro === 'protein') trendColor = up ? '#22c55e' : '#f97316';
+      else if (c.macro === 'fat' || c.macro === 'carbs') trendColor = up ? '#f97316' : '#22c55e';
+    }
+    return `<div class="summary-card">
       <div class="summary-label">${c.label}</div>
       <div><span class="summary-value">${c.display}</span><span class="summary-unit">${c.unit}</span></div>
-      <div class="summary-trend ${c.trend_up ? 'trend-up' : 'trend-down'}">${c.delta_display || '—'} vs prev month</div>
-    </div>`).join('');
+      <div class="summary-trend" style="color:${trendColor}">${c.delta_display || '—'} vs prev month</div>
+    </div>`;
+  }).join('');
 }
 
 // ── HEATMAP ──
@@ -206,7 +214,7 @@ function renderHeatmap() {
       html += `<span style="font-size:10px;${mono};color:var(--bright);font-weight:600;width:36px;text-align:right">${m.avg_kcal.toLocaleString()}</span>`;
       html += `<span style="font-size:8px;${mono};color:var(--muted);width:22px">avg</span>`;
       if (m.fasting_days > 0) html += `<span style="font-size:8px;${mono};color:#7c3aed">${m.fasting_days}f</span>`;
-      if (m.over_3000_days > 0) html += `<span style="font-size:8px;${mono};color:#f97316">${m.over_3000_days}↑</span>`;
+      if (m.over_elevated_days > 0) html += `<span style="font-size:8px;${mono};color:#f97316">${m.over_elevated_days}↑</span>`;
     }
     html += '</div></div>';
   });

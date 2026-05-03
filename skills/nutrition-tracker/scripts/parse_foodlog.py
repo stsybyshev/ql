@@ -22,7 +22,7 @@ def _safe_float(s):
     return float(s)
 
 
-def parse_log(filepath):
+def parse_log(filepath): 
     """Parse a monthly food log, return list of (date_str, protein, fat, carbs, kcal, is_fasting)."""
     entries = []
     in_table = False

@@ -89,6 +89,7 @@ def build_summary_cards(this_month_days, prev_month_days):
         "cards": [
             {
                 "label": "Avg Daily Calories",
+                "macro": "kcal",
                 "value": round(this_kcal),
                 "display": fmt(this_kcal),
                 "unit": "kcal",
@@ -98,6 +99,7 @@ def build_summary_cards(this_month_days, prev_month_days):
             },
             {
                 "label": "Avg Protein",
+                "macro": "protein",
                 "value": round(this_p),
                 "display": fmt(this_p),
                 "unit": "g/day",
@@ -107,6 +109,7 @@ def build_summary_cards(this_month_days, prev_month_days):
             },
             {
                 "label": "Avg Fat",
+                "macro": "fat",
                 "value": round(this_f),
                 "display": fmt(this_f),
                 "unit": "g/day",
@@ -116,6 +119,7 @@ def build_summary_cards(this_month_days, prev_month_days):
             },
             {
                 "label": "Avg Carbs",
+                "macro": "carbs",
                 "value": round(this_c),
                 "display": fmt(this_c),
                 "unit": "g/day",
@@ -129,6 +133,7 @@ def build_summary_cards(this_month_days, prev_month_days):
 
 def build_yearly_heatmap(all_days, config, year):
     """Build 12x31 heatmap grid with per-month stats."""
+    elevated_max = config.get("heatmap", {}).get("elevated_max", 3000)
     months = []
     for month_idx in range(12):
         month_num = month_idx + 1
@@ -136,7 +141,7 @@ def build_yearly_heatmap(all_days, config, year):
         has_data = False
         daily_kcals = []
         fasting_count = 0
-        over_3000 = 0
+        over_elevated = 0
 
         day_entries = []
         for day_num in range(1, 32):
@@ -152,8 +157,8 @@ def build_yearly_heatmap(all_days, config, year):
                     kcal_val = 0
                     fasting_count += 1
                 daily_kcals.append(kcal_val)
-                if kcal_val > 3000:
-                    over_3000 += 1
+                if kcal_val >= elevated_max:
+                    over_elevated += 1
                 day_entries.append({"day": day_num, "kcal": kcal_val})
             else:
                 day_entries.append({"day": day_num, "kcal": None})
@@ -166,7 +171,7 @@ def build_yearly_heatmap(all_days, config, year):
             "has_data": has_data,
             "avg_kcal": avg_kcal,
             "fasting_days": fasting_count,
-            "over_3000_days": over_3000,
+            "over_elevated_days": over_elevated,
             "days": day_entries,
         })
 
@@ -451,6 +456,9 @@ def run_pipeline(data_dir, config_path, output_dir, template_path=None):
     prev_month_days = {k: v for k, v in all_days.items() if k.startswith(prev_month_prefix)}
 
     today_iso = today.isoformat()
+    # Exclude today from averages — partial day skews the numbers.
+    # Fall back to including today if it's the only day in the month (e.g. 1st of month).
+    this_month_days_avg = {k: v for k, v in this_month_days.items() if k != today_iso} or this_month_days
     today_meals = all_days.get(today_iso, {"meals": []})["meals"]
 
     # Build all widgets
@@ -464,12 +472,12 @@ def run_pipeline(data_dir, config_path, output_dir, template_path=None):
         },
         "config": config,
         "widgets": {
-            "summary_cards": build_summary_cards(this_month_days, prev_month_days),
+            "summary_cards": build_summary_cards(this_month_days_avg, prev_month_days),
             "yearly_heatmap": build_yearly_heatmap(all_days, config, today.year),
             "todays_macros": build_todays_macros(today_meals, config),
             "todays_meals": build_todays_meals(today_meals),
-            "meal_timing": build_meal_timing(this_month_days, config),
-            "macro_comp": build_macro_comp(this_month_days, prev_month_days),
+            "meal_timing": build_meal_timing(this_month_days_avg, config),
+            "macro_comp": build_macro_comp(this_month_days_avg, prev_month_days),
             "monthly_insights": build_monthly_insights(),
         },
     }
