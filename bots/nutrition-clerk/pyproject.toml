@@ -1,0 +1,38 @@
+[project]
+name = "nutrition-clerk"
+version = "0.1.0"
+description = "Personal clerical bot for meal (and later gym/finance) logging via Telegram."
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.4",
+    "python-telegram-bot>=21.6",
+    "google-adk>=1.0",
+    "litellm>=1.50",
+    # ADK 2.6 requires mcp<2 (uses mcp.server.fastmcp which was removed in mcp 2.x).
+    "mcp>=1.24,<2",
+    "pyyaml>=6.0.3",
+    "rapidfuzz>=3.14.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
+
+[project.scripts]
+nutrition-clerk = "nutrition_clerk.main:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pillow>=12.3.0",
+]

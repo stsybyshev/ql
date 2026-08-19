@@ -1,0 +1,138 @@
+# Copy to ~/.config/nutrition-clerk/config.toml and chmod 600.
+# Load path override: NUTRITION_CLERK_CONFIG=/path/to/config.toml
+
+[bot]
+# Register a new bot with @BotFather on Telegram; paste the token here.
+# Leave empty to run with channel = "stub" for local development.
+telegram_token = ""
+# Only these Telegram chat_ids will get a response. Everything else is dropped silently.
+# Find your chat_id via @userinfobot on Telegram.
+allowed_chat_ids = []
+# "stub" for a scripted in-process channel, "telegram" for real polling.
+channel = "stub"
+
+[paths]
+# Where the idempotency store and (later) session DB live.
+state_dir = "~/.local/state/nutrition-clerk"
+
+[models]
+# Profile key to use by default; override at runtime with NUTRITION_CLERK_PROFILE=<name>.
+default = "cloud_haiku"
+
+[models.profiles.cloud_haiku]
+# LiteLLM model string. See https://docs.litellm.ai/docs/providers.
+model = "anthropic/claude-haiku-4-5"
+# Env var to read for the provider API key (LiteLLM checks this automatically).
+api_key_env = "ANTHROPIC_API_KEY"
+
+[models.profiles.cloud_sonnet]
+# Sonnet 5 for high-judgement tasks (meal-photo estimation).
+model = "anthropic/claude-sonnet-5"
+api_key_env = "ANTHROPIC_API_KEY"
+
+[models.profiles.local_gemma]
+# Local Ollama running on the same box.
+model = "ollama_chat/gemma3n:e4b"
+api_base = "http://localhost:11434"
+
+# --- Per-turn model routing ---
+# Ordered list, FIRST MATCH WINS. Each rule can require a photo (or forbid one)
+# and/or match the message text against a regex (case-insensitive). If nothing
+# matches, `models.default` is used.
+#
+# Uncomment the block below to enable per-shape routing. The commented layout
+# below sends eating-out photos to Sonnet, label photos to Haiku (cheap OCR),
+# any-other photo defaults to Sonnet, and text-only messages to Haiku. Swap
+# "cloud_haiku" for "local_gemma" once Ollama is running to zero out cost on
+# text-only turns.
+
+# [[models.routing]]
+# name = "eating_out_photo"
+# profile = "cloud_sonnet"
+# requires_photo = true
+# pattern = "\\b(restaurant|cafe|café|diner|bistro|pub|tavern|takeaway|takeout|eating\\s+out|dined\\s+at|dinner\\s+out|had\\s+dinner|had\\s+lunch|for\\s+lunch|for\\s+dinner)\\b"
+
+# [[models.routing]]
+# name = "label_photo"
+# profile = "cloud_haiku"
+# requires_photo = true
+# pattern = "\\b(nutrition|per\\s+100\\s?g|per\\s+serving|kcal\\s+per|label|barcode)\\b"
+
+# [[models.routing]]
+# name = "any_photo_fallback"
+# profile = "cloud_sonnet"
+# requires_photo = true
+
+# [[models.routing]]
+# name = "text_only"
+# profile = "cloud_haiku"     # swap to "local_gemma" once Ollama profile is live
+# requires_photo = false
+
+# --- Per-turn tracing ---
+# One JSONL record per inbound message: inputs, every node with timings, the
+# prompts and raw model responses, the reply, and a traceback if it failed.
+# Written even when the turn raises — that is the case worth inspecting.
+#   jq 'select(.error)' turns.jsonl          # failed turns
+#   jq '{id:.turn_id, ms:.total_ms}' turns.jsonl
+[tracing]
+enabled = true
+file = "turns.jsonl"          # relative names resolve under paths.state_dir
+record_payloads = true        # capture prompts + raw responses
+max_payload_chars = 4000      # truncate so one runaway prompt can't fill disk
+retain_failed_photos = true   # copy photos of failed turns for replay
+
+# --- Per-node model selection ---
+# Each LLM call site in the workflow can use a different profile. Leave a
+# value empty ("") to fall back to models.default (or NUTRITION_CLERK_PROFILE).
+#
+#   extractor  — parses free text into structured entries. Text-only, cheap
+#                models do fine. Gemma works at ~90% reliability locally.
+#   vision     — reads nutrition labels from photos. Haiku 4.5 matched
+#                Sonnet 5 exactly on real labels at 1/3 the cost, so Haiku
+#                is the default here.
+#   knowledge  — "estimate macros for <food>" when a food isn't cached.
+#                Short calls; cheapest tier is fine.
+[nodes]
+extractor_profile = ""              # "" = use models.default
+vision_profile = "cloud_haiku"
+knowledge_profile = ""              # "" = use models.default
+
+# --- Chat context / session length ---
+[context]
+# A gap longer than this starts a fresh context: the recent-meals ring is
+# cleared and any unanswered clarification is dropped. 16h spans a normal
+# waking day, so breakfast and dinner share one session but yesterday's
+# conversation never leaks into today's.
+inactivity_timeout_hours = 16
+recent_entries_ring_size = 10
+
+[mcp.food_tracker]
+# Absolute path to the food-tracker MCP server project (this repo).
+project_dir = "/home/stan/dev/ql/skills/nutrition-tracker/mcp-server/food-tracker"
+
+# ---------------------------------------------------------------------------
+# DOUBLE-ENTRY MODE (current setup)
+#
+# The clerk writes to its OWN log directory and its OWN copy of
+# personal-foods.yaml, so it can run in parallel with Veda for a while and
+# the two outputs can be compared without either corrupting the other.
+#
+# popular-foods.yaml is shared — it is read-only seed data, never written.
+#
+# Seed the parallel files once before first run:
+#     mkdir -p ~/.openclaw/workspace/food-tracker-clerk
+#     cp ~/.openclaw/workspace/food-tracker/personal-foods.yaml \
+#        ~/.openclaw/workspace/food-tracker-clerk/personal-foods.yaml
+#
+# Compare a day's output:
+#     diff <(grep '^| [0-9]' ~/.openclaw/workspace/food-tracker/2026-08.md) \
+#          <(grep '^| [0-9]' ~/.openclaw/workspace/food-tracker-clerk/2026-08.md)
+#
+# To CUT OVER later: comment out the two lines below so the clerk writes to
+# the same files Veda uses, and stop sending meals to Veda.
+# ---------------------------------------------------------------------------
+food_log_dir         = "~/.openclaw/workspace/food-tracker-clerk"
+personal_foods_path  = "~/.openclaw/workspace/food-tracker-clerk/personal-foods.yaml"
+
+# Shared, read-only seed data — safe for both bots to read.
+popular_foods_path   = "~/.openclaw/workspace/skills/openclaw-food-tracker/references/popular-foods.yaml"

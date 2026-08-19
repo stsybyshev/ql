@@ -1,0 +1,48 @@
+[Unit]
+Description=Nutrition Clerk (Telegram meal-logging bot)
+Documentation=file:///home/stan/dev/ql/bots/nutrition-clerk/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# uv runs the project's own venv, so the unit does not depend on any shell
+# activation. --project makes it independent of WorkingDirectory too.
+ExecStart=/home/stan/.local/bin/uv run --project /home/stan/dev/ql/bots/nutrition-clerk nutrition-clerk
+WorkingDirectory=/home/stan/dev/ql/bots/nutrition-clerk
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+# 143 = SIGTERM (normal systemd stop), 130 = SIGINT. Neither is a failure,
+# and without this every restart would be recorded as one.
+SuccessExitStatus=0 130 143
+KillMode=control-group
+
+# --- Secrets ---
+# ANTHROPIC_API_KEY lives in a 0600 file, never in this unit: unit files are
+# world-readable and land in `systemctl cat` output. The leading '-' means a
+# missing file is not a hard failure — though the bot will fail its first
+# LLM call without the key.
+EnvironmentFile=-%h/.config/nutrition-clerk/env
+
+Environment=HOME=%h
+Environment=TMPDIR=/tmp
+# uv and the MCP subprocess (`uv run --project ... server.py`) both need uv on
+# PATH; systemd's default PATH does not include ~/.local/bin.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Unbuffered so log lines reach the journal as they happen rather than in
+# 4KB blocks — matters when tailing a bot that emits a few lines per minute.
+Environment=PYTHONUNBUFFERED=1
+
+# Journal captures stdout/stderr. Per-turn detail (prompts, responses,
+# timings) goes to ~/.local/state/nutrition-clerk/turns.jsonl instead —
+# see the Troubleshooting section of the README.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nutrition-clerk
+
+[Install]
+WantedBy=default.target
