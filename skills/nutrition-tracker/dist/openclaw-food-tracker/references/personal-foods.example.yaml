@@ -1,0 +1,19 @@
+# Personal Foods Cache — TEMPLATE
+#
+# The real cache is git-ignored: it records what you actually eat, which is
+# personal data and does not belong in a public repository. deploy.sh copies
+# this template on first install; the bot appends your own entries at runtime.
+#
+# Fields: name, aliases, qty_default, unit, kcal_per_unit,
+#         protein_per_unit, fat_per_unit, carbs_per_unit, notes, source
+
+- name: house coffee
+  aliases: [coffee, filter coffee]
+  qty_default: 1
+  unit: cup
+  kcal_per_unit: 5
+  protein_per_unit: 0.3
+  fat_per_unit: 0.0
+  carbs_per_unit: 0.5
+  notes: "Placeholder entry — replace with your own."
+  source: learned

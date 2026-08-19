@@ -112,8 +112,12 @@ mkdir -p "$FOOD_DIR"
 
 # Copy personal-foods.yaml to workspace if not already there
 if [ ! -f "${FOOD_DIR}/personal-foods.yaml" ]; then
-    cp "${DEST_DIR}/references/personal-foods.yaml" "${FOOD_DIR}/personal-foods.yaml"
-    ok "Seeded ${FOOD_DIR}/personal-foods.yaml (first install)"
+    # The real cache is git-ignored (personal data). Prefer it when present
+    # locally, else seed from the committed template.
+    SEED="${DEST_DIR}/references/personal-foods.yaml"
+    [ -f "$SEED" ] || SEED="${DEST_DIR}/references/personal-foods.example.yaml"
+    cp "$SEED" "${FOOD_DIR}/personal-foods.yaml"
+    ok "Seeded ${FOOD_DIR}/personal-foods.yaml from $(basename "$SEED")"
 else
     info "Workspace personal-foods.yaml already exists — not overwriting"
 fi

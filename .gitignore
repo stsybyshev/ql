@@ -24,3 +24,7 @@ __pycache__/
 # Local runtime state (also lives outside the repo, but belt and braces)
 *.jsonl
 !tests/**/*.jsonl
+
+# Personal food cache — records what the user actually eats. Kept local.
+# A committed template (personal-foods.example.yaml) seeds a fresh install.
+personal-foods.yaml
