@@ -18,7 +18,7 @@ run as a spend decision, not a free action.
 | Suite | Cost | Notes |
 |---|---|---|
 | `tests/unit` | **free** | No network. Passes with `ANTHROPIC_API_KEY` unset. ~2.5s |
-| `tests/integration` | **real money** | **measured 19-08-2026: $0.117/run** (87,885 in + 5,726 out on Haiku 4.5 @ $1/$5 per M, 36 LLM calls, 77s). ~$0.005/turn. Skips entirely without a key |
+| `tests/integration` | **real money** | **$0.14/run, billed** (19-08-2026: console delta $3.60 -> $3.74; 77s). turns.jsonl accounted for $0.117 of it -- the rest is enricher calls made outside a trace scope, so the trace undercounts by ~15%. Skips entirely without a key |
 
 Rules:
 - Run `tests/unit` freely, and always before proposing a commit.
