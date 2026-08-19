@@ -10,7 +10,13 @@ import os
 
 from mcp.server.fastmcp import FastMCP
 
-from food_cache import append_personal_food, get_daily_totals, log_food_entry, search_foods
+from food_cache import (
+    append_personal_food,
+    get_daily_totals,
+    log_food_entry,
+    resolve_log_units,
+    search_foods,
+)
 
 # --- Config from env vars ---
 PERSONAL_FOODS_PATH = os.environ.get(
@@ -157,15 +163,32 @@ def log_food(
     """
     logger.info("tool=log_food datetime=%r food=%r qty=%s unit=%r source=%r", datetime, food, qty, unit, source)
     try:
-        result = log_food_entry(
-            dt_str=datetime,
+        # Deterministic unit normalization — the MCP owns unit conversion and
+        # per-unit rates for cache foods, not the (unreliable) model.
+        norm = resolve_log_units(
             food=food,
             qty=qty,
             unit=unit,
+            kcal_per_unit=kcal_per_unit,
             protein_per_unit=protein_per_unit,
             fat_per_unit=fat_per_unit,
             carbs_per_unit=carbs_per_unit,
-            kcal_per_unit=kcal_per_unit,
+            source=source,
+            personal_path=PERSONAL_FOODS_PATH,
+            popular_path=POPULAR_FOODS_PATH,
+        )
+        if norm.get("note"):
+            logger.info("tool=log_food normalized food=%r %s", food, norm["note"])
+
+        result = log_food_entry(
+            dt_str=datetime,
+            food=food,
+            qty=norm["qty"],
+            unit=norm["unit"],
+            protein_per_unit=norm["protein_per_unit"],
+            fat_per_unit=norm["fat_per_unit"],
+            carbs_per_unit=norm["carbs_per_unit"],
+            kcal_per_unit=norm["kcal_per_unit"],
             source=source,
             confidence=confidence,
             log_dir=FOOD_LOG_DIR,
@@ -195,6 +218,18 @@ def get_todays_totals(date: str) -> dict:
     except Exception as e:
         logger.error("tool=get_todays_totals date=%r error=%s", date, e)
         raise
+
+
+@mcp.tool()
+def eat(command: str = "", commandName: str = "", skillName: str = "") -> dict:
+    """Echo stub for /eat slash command (Phase 1 — body becomes real parser in Phase 2).
+
+    Validates that command-dispatch: tool reaches MCP tools and surfaces what
+    the dispatcher actually passes. Returns received args as JSON for inspection.
+    """
+    received = {"command": command, "commandName": commandName, "skillName": skillName}
+    logger.info("tool=eat received=%r", received)
+    return received
 
 
 if __name__ == "__main__":

@@ -142,6 +142,110 @@ def append_personal_food(
     return {"status": "ok", "entry": record}
 
 
+# --- Unit normalization (deterministic; owned by MCP, not the model) ---
+
+
+def _parse_weight_unit(unit: str) -> tuple[float, str] | None:
+    """Parse a weight/volume unit into (amount_in_base, base).
+
+    '100g' -> (100, 'g'); 'g' -> (1, 'g'); 'kg' -> (1000, 'g')
+    '100ml' -> (100, 'ml'); 'ml' -> (1, 'ml'); 'l' -> (1000, 'ml')
+    Named units (cup, serving, egg, cortado, ...) -> None.
+    """
+    u = (unit or "").strip().lower()
+    m = re.fullmatch(r"(\d*\.?\d*)\s*(kg|g|ml|l)", u)
+    if not m:
+        return None
+    num = float(m.group(1)) if m.group(1) else 1.0
+    base = m.group(2)
+    if base == "kg":
+        return (num * 1000, "g")
+    if base == "l":
+        return (num * 1000, "ml")
+    return (num, base)
+
+
+def resolve_log_units(
+    food: str,
+    qty: float,
+    unit: str,
+    kcal_per_unit: float,
+    protein_per_unit: float,
+    fat_per_unit: float,
+    carbs_per_unit: float,
+    source: str,
+    personal_path: str,
+    popular_path: str,
+) -> dict:
+    """Normalize qty/unit and per-unit rates before logging.
+
+    The model only reliably reports (food, raw_qty, raw_unit). Unit conversion
+    and per-unit nutrition are deterministic and owned here, not by the model.
+
+    - source == 'cache_lookup': the cache is authoritative for known foods.
+      Re-fetch its canonical rates and convert the user's qty into the cache
+      entry's unit basis (e.g. 40g + cache '100g' -> qty 0.4, unit '100g').
+    - other sources (text_estimate / photo_*) or cache miss: apply a physically
+      grounded heuristic — a food cannot exceed 1g of macros or ~9 kcal per gram,
+      so unit='g' with kcal>9 or macro-sum>1 is unambiguously per-100g data.
+
+    Returns possibly-corrected values plus a 'note' describing any change.
+    """
+    out = {
+        "qty": qty,
+        "unit": unit,
+        "kcal_per_unit": kcal_per_unit,
+        "protein_per_unit": protein_per_unit,
+        "fat_per_unit": fat_per_unit,
+        "carbs_per_unit": carbs_per_unit,
+        "note": "",
+    }
+
+    if source == "cache_lookup":
+        matches = search_foods(food, personal_path, popular_path)
+        if matches:
+            entry = matches[0]
+            cache_unit = str(entry.get("unit", ""))
+            in_parsed = _parse_weight_unit(unit)
+            cache_parsed = _parse_weight_unit(cache_unit)
+
+            def _use_cache_rates():
+                out["kcal_per_unit"] = entry.get("kcal_per_unit", kcal_per_unit)
+                out["protein_per_unit"] = entry.get("protein_per_unit", protein_per_unit)
+                out["fat_per_unit"] = entry.get("fat_per_unit", fat_per_unit)
+                out["carbs_per_unit"] = entry.get("carbs_per_unit", carbs_per_unit)
+
+            if in_parsed and cache_parsed and in_parsed[1] == cache_parsed[1]:
+                # Same weight/volume base: convert qty to the cache's unit basis.
+                total_base = qty * in_parsed[0]
+                out["qty"] = round(total_base / cache_parsed[0], 4)
+                out["unit"] = cache_unit
+                _use_cache_rates()
+                if out["unit"] != unit or out["qty"] != qty:
+                    out["note"] = f"cache-normalized {qty}{unit} -> {out['qty']}x{cache_unit}"
+                return out
+            if unit.strip().lower() == cache_unit.strip().lower():
+                # Same named unit (serving/cortado/egg/...): trust qty, cache rates.
+                _use_cache_rates()
+                return out
+            # Incompatible units (e.g. input 'g' vs cache 'serving'): don't force
+            # cache rates; fall through to the heuristic below.
+            out["note"] = f"unit mismatch (input {unit!r} vs cache {cache_unit!r}); used heuristic"
+        # no cache match -> fall through to heuristic
+
+    # Heuristic (estimate/photo or cache miss): detect per-100g mislabeled as per-g.
+    in_parsed = _parse_weight_unit(unit)
+    if in_parsed and in_parsed[0] == 1.0:  # raw 'g' or 'ml'
+        base = in_parsed[1]
+        macro_sum = (protein_per_unit or 0) + (fat_per_unit or 0) + (carbs_per_unit or 0)
+        if (kcal_per_unit or 0) > 9 or macro_sum > 1:
+            out["qty"] = round(qty / 100, 4)
+            out["unit"] = f"100{base}"
+            prefix = out["note"] + "; " if out["note"] else ""
+            out["note"] = f"{prefix}heuristic: per-100{base} values with unit {base!r} -> {out['qty']}x100{base}"
+    return out
+
+
 # --- Food log operations ---
 
 
@@ -206,6 +310,33 @@ def _format_row(
     )
 
 
+def normalize_food_name(food: str) -> str:
+    """Normalise a food name for the monthly log to SENTENCE case.
+
+    The log's established convention is sentence case (~1900 capitalised rows
+    vs ~50 lowercase). Agents supply names in whatever case they happen to
+    have: personal-foods.yaml stores keys lowercase, so a cache hit yields
+    "espresso", while an LLM estimate yields "Espresso" or "Boiled Eggs".
+    Left unnormalised, the same food splits into several names and anything
+    grouping by name (dashboards, averages) double-counts it.
+
+    Capitalise the FIRST character only and leave the rest untouched. Title-
+    casing would mangle acronyms and brands ("MCT C8 oil" -> "Mct C8 Oil",
+    "Pret nicoise salad" -> "Pret Nicoise Salad").
+
+        "espresso"          -> "Espresso"
+        "small cappuccino"  -> "Small cappuccino"
+        "MCT C8 oil"        -> "MCT C8 oil"   (unchanged)
+
+    Applied here, in the single write path, so every client (Veda, clerk,
+    anything future) gets the same convention without having to remember.
+    """
+    food = (food or "").strip()
+    if not food:
+        return food
+    return food[0].upper() + food[1:]
+
+
 def log_food_entry(
     dt_str: str,
     food: str,
@@ -244,6 +375,10 @@ def log_food_entry(
 
     day, month, year = m.group(1), m.group(2), m.group(3)
     date_prefix = f"{day}-{month}-{year}"
+
+    # Single place the log's naming convention is enforced — see
+    # normalize_food_name. Clients may pass any casing.
+    food = normalize_food_name(food)
 
     # Determine file path
     file_path = Path(log_dir) / f"{year}-{month}.md"
