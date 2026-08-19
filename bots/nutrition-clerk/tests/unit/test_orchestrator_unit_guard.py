@@ -192,3 +192,63 @@ async def test_omelette_logs_one_serving_not_three():
     assert kwargs["qty"] == 1.0
     assert kwargs["unit"] == "serving"
     assert kwargs["kcal_per_unit"] == 390
+
+
+# --- the exact-name rescue must not eat a stated weight (19-08-2026) ---
+#
+# "Dinner: 160g buckwheat, 240g yellow fin tuna, 200g cucumber, ..."
+#
+# The rescue added for "3 eggs omelette" keeps a unit-incompatible hit when the
+# user names it exactly, then falls back to qty_default. That is right when the
+# user's number counts something the cache cannot measure. It is wrong when the
+# user gave a WEIGHT, which is exact and transferable:
+#
+#   200g cucumber -> per-cucumber entry (qty_default 0.5) -> logged 0.5 cucumber,
+#                    the 200g silently discarded.
+#   160g buckwheat -> pulled a per-CUP entry back in beside the per-100g one,
+#                     manufacturing "Did you mean buckwheat or buckwheat?".
+
+CUCUMBER = {
+    "name": "cucumber", "aliases": ["cucumbers"],
+    "unit": "cucumber", "qty_default": 0.5, "kcal_per_unit": 45,
+    "protein_per_unit": 2.0, "fat_per_unit": 0.3, "carbs_per_unit": 11.0,
+}
+BUCKWHEAT_100G = {
+    "name": "buckwheat", "aliases": ["kasha", "buckwheat groats"],
+    "unit": "100g", "qty_default": 1, "kcal_per_unit": 334,
+    "protein_per_unit": 13.3, "fat_per_unit": 3.0, "carbs_per_unit": 57.6,
+}
+BUCKWHEAT_CUP = {
+    "name": "buckwheat", "aliases": ["kasha", "buckwheat groats", "toasted buckwheat"],
+    "unit": "cup", "qty_default": 1, "kcal_per_unit": 155,
+    "protein_per_unit": 5.7, "fat_per_unit": 1.0, "carbs_per_unit": 33.5,
+}
+
+
+def test_stated_weight_is_not_replaced_by_qty_default():
+    """200g against a per-cucumber entry must drop the hit, not log 0.5."""
+    entry = ExtractedEntry(name="Cucumber", qty=200, unit="g")
+    assert _usable_hits(entry, [CUCUMBER]) == []
+
+
+def test_weight_entry_survives_while_incompatible_twin_is_dropped():
+    """160g buckwheat keeps the per-100g entry and drops the per-cup one."""
+    entry = ExtractedEntry(name="Buckwheat", qty=160, unit="g")
+    kept = _usable_hits(entry, [BUCKWHEAT_100G, BUCKWHEAT_CUP])
+    assert kept == [BUCKWHEAT_100G], "the per-cup twin created a bogus ambiguity"
+
+
+def test_non_weight_count_still_rescues():
+    """The omelette case must keep working — "egg" is a count, not a weight."""
+    entry = ExtractedEntry(name="3 eggs omelette", qty=3, unit="egg")
+    assert _usable_hits(entry, [OMELETTE]) == [OMELETTE]
+
+
+def test_question_never_offers_two_identical_labels():
+    """"Did you mean buckwheat or buckwheat?" is unanswerable."""
+    from nutrition_clerk.workflow.orchestrator import _disambiguate_cache_hits
+    hit, question = _disambiguate_cache_hits("buckwheat", [BUCKWHEAT_100G, BUCKWHEAT_CUP])
+    if question is not None:
+        offered = question.replace("Did you mean ", "").rstrip("?").split(" or ")
+        assert len(set(offered)) == len(offered), f"indistinguishable options: {question}"
+        assert "100g" in question and "cup" in question

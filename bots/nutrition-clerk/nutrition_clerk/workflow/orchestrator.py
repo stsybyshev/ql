@@ -114,6 +114,15 @@ def _disambiguate_cache_hits(
         return top["hit"], None
     # Build a short question listing the top 2-3 candidates by name.
     names = [s["hit"].get("name", "?") for s in scored[:3]]
+    # Two entries can share a name and differ only in unit — personal
+    # "buckwheat" is per-100g, popular "buckwheat" is per-cup. Offering the
+    # bare names produced "Did you mean buckwheat or buckwheat?", which the
+    # user cannot answer. Qualify with the unit when the labels collide.
+    if len(set(names)) != len(names):
+        names = [
+            f'{s["hit"].get("name", "?")} (per {s["hit"].get("unit") or "serving"})'
+            for s in scored[:3]
+        ]
     if len(names) == 2:
         question = f"Did you mean {names[0]} or {names[1]}?"
     else:
@@ -535,7 +544,17 @@ def _usable_hits(entry: ExtractedEntry, hits: list[dict[str, Any]]) -> list[dict
     for hit in hits:
         if _units_compatible(entry.unit, hit.get("unit"), entry.qty):
             kept.append(hit)
-        elif _names_match_exactly(entry.name, hit):
+        elif _names_match_exactly(entry.name, hit) and not _is_weight(entry.unit):
+            # Rescue only when the user's quantity counts something the cache
+            # does not measure ("3 eggs" against a per-SERVING omelette) — there
+            # the number is unmappable and qty_default is the best we have.
+            #
+            # A WEIGHT is different: it is exact, transferable information, and
+            # falling back to qty_default throws it away. "200g cucumber" against
+            # a per-cucumber entry logged 0.5 cucumber and silently dropped the
+            # 200g; "160g buckwheat" pulled a per-cup entry back in beside the
+            # per-100g one and asked "buckwheat or buckwheat?". Dropping the hit
+            # sends it to the knowledge estimator, which honours the grams.
             kept.append(hit)
         else:
             log.info(
