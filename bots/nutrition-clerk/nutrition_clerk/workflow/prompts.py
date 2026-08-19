@@ -23,6 +23,7 @@ Return ONLY a single JSON object with EXACTLY these keys:
           "qty": number or null,
           "unit": string or null,
           "datetime_hint": string or null,
+          "photo_index": number or null,
           "kcal": number or null,
           "protein_g": number or null,
           "fat_g": number or null,
@@ -78,6 +79,26 @@ For each food item mentioned:
     * "yesterday 8pm"                 -> "yesterday 8pm"
     * If the user wrote a full timestamp, pass it through verbatim.
   Leave null when the user didn't mention time — orchestrator uses now().
+- `photo_index`: which attached photo belongs to this entry, if the user
+  said so. Look for a marker attached to a SPECIFIC food:
+    "(label attached)", "(photo attached)", "see photo", "pictured",
+    "attached", "this one" — anything tying an image to that item.
+  Number the MARKED entries in the order they appear: first marked entry
+  gets 0, second gets 1, and so on. Leave null for every unmarked entry.
+
+    "30g of Apricot yogurt (label attached)"
+        -> that entry gets photo_index=0
+
+    "30g Apricot yogurt (label attached), 100g cheese (label attached)"
+        -> yogurt photo_index=0, cheese photo_index=1
+
+    "Thai dinner: jungle curry, jasmine rice"   [photo, no marker]
+        -> ALL entries photo_index=null — the photo covers the whole meal,
+           and the orchestrator works that out for itself.
+
+  Only set it when the user genuinely pointed at an item. A bare photo
+  with no marker is NOT a reason to guess: leave every entry null and let
+  the orchestrator decide. Guessing here silently logs the wrong food.
 
 A message often contains MULTIPLE entries separated by commas or " and ":
     "just had 3 eggs and a coffee"  -> two entries: (name="Scrambled eggs", qty=3, unit="egg")

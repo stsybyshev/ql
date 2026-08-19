@@ -36,6 +36,18 @@ class ExtractedEntry(BaseModel):
             "datetime.now(). Resolved deterministically in Python."
         ),
     )
+    photo_index: int | None = Field(
+        default=None,
+        description=(
+            "0-based position of this entry among the entries the user marked "
+            'as having a photo ("(label attached)", "photo attached", "see '
+            'photo"). First marked entry -> 0, second -> 1, and so on. None '
+            "when the user did not mark this entry. The extractor is TEXT-ONLY "
+            "and never sees the images, so this records marker ORDER, not "
+            "image content — the orchestrator verifies it against what vision "
+            "actually read."
+        ),
+    )
     # N2 — SHAPE B: user typed full macros. When kcal is not None, orchestrator
     # skips the cache lookup and logs with source="text_estimate".
     kcal: float | None = Field(

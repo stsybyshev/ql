@@ -658,6 +658,136 @@ def _normalise_dish_weight(dish: MealDish) -> tuple[float, str, dict[str, float]
     return qty / 100.0, basis, {k: v * 100.0 for k, v in per_unit.items()}
 
 
+def _is_weight(unit: str | None) -> bool:
+    return (unit or "").strip().lower() in _WEIGHT_UNITS
+
+
+def _label_owners(
+    entries: list[ExtractedEntry],
+    label_slots: list[int],
+    extracts: list["PhotoExtract"],
+) -> tuple[dict[int, int] | None, list[int]]:
+    """Decide which entry each LABEL photo belongs to.
+
+    Photos used to be consumed positionally — the first entry to reach the
+    photo branch took photos[0], whatever it depicted. On a real message:
+
+        "Lunch: Spanish eggs, 150g of pomegranate juice, small orange,
+         30g of Apricot yogurt (label attached)"        + one yogurt label
+
+    "Spanish eggs" (qty=null) took the photo, so the yogurt's label was
+    logged against the eggs' entry: 1 x 100g instead of 30g, the eggs never
+    logged at all, and the yogurt logged again as an estimate.
+
+    Three rules, in order:
+
+    1. THE USER'S MARKER. "(label attached)" is an explicit statement of
+       ownership, and the extractor records its ORDER as `photo_index`.
+       The extractor is text-only — it never sees the images — so this says
+       "the Nth thing I marked" and nothing about what is in the picture.
+       Rule 3 checks it.
+
+    2. WEIGHT QUANTITY. A label is per-100g, so the entry must carry a
+       weight for there to be anything to scale. "Spanish eggs" with
+       qty=null cannot own one; that alone rules out the failure above.
+       Used only when the user gave no marker.
+
+    3. CROSS-CHECK against what vision actually read. Compare the assignment
+       to every reordering of the same photos, scoring each pairing on
+       `label_name`, and take the best. This is RELATIVE on purpose: the
+       user writes "super fancy cheese" and the label says "Manchego", so no
+       absolute threshold survives contact with real wording. The correct
+       pairing only has to beat the incorrect one, and a single recognisable
+       name settles the whole set. Costs nothing — vision already returned
+       these names.
+
+    Anything still ambiguous asks. Guessing is what caused the bug.
+
+    Returns (mapping entry_idx -> photo_idx, candidate entry indices).
+    A None mapping means "ask the user"; the candidate list names the
+    entries worth asking about.
+    """
+    if not label_slots:
+        return {}, []
+
+    weighted = [i for i, e in enumerate(entries) if _is_weight(e.unit) and e.qty is not None]
+
+    # --- 1. the user's marker -------------------------------------------
+    marked = sorted(
+        (i for i, e in enumerate(entries) if e.photo_index is not None),
+        key=lambda i: entries[i].photo_index,
+    )
+    if marked:
+        if len(marked) != len(label_slots):
+            log.info(
+                "%d entries marked with a photo but %d label photo(s) attached",
+                len(marked), len(label_slots),
+            )
+            return None, marked
+        owners = dict(zip(marked, label_slots))
+        return _verify_against_labels(entries, owners, extracts), marked
+
+    # --- 2. deterministic fallbacks --------------------------------------
+    if len(label_slots) == 1:
+        if len(entries) == 1:
+            return {0: label_slots[0]}, [0]
+        if len(weighted) == 1:
+            return {weighted[0]: label_slots[0]}, weighted
+
+    if len(weighted) == len(label_slots) and weighted:
+        owners = dict(zip(weighted, label_slots))
+        return _verify_against_labels(entries, owners, extracts), weighted
+
+    return None, weighted
+
+
+def _verify_against_labels(
+    entries: list[ExtractedEntry],
+    owners: dict[int, int],
+    extracts: list["PhotoExtract"],
+) -> dict[int, int]:
+    """Reorder `owners` if another pairing matches the read label names better.
+
+    Only meaningful for 2+ photos: with one photo there is nothing to swap.
+    `label_name` is null on roughly a third of real photos, so a pairing
+    scores 0 for those and the comparison quietly falls back to the order
+    the user implied.
+    """
+    from itertools import permutations
+
+    if len(owners) < 2 or len(owners) > 4:      # 4! = 24, still trivial
+        return owners
+
+    entry_idxs = list(owners.keys())
+    slots = list(owners.values())
+
+    def _name_of(slot: int) -> str:
+        extract = extracts[slot]
+        label = getattr(extract, "label", None)
+        return ((getattr(label, "label_name", None) or "")).strip().lower()
+
+    def _score(pairing: tuple[int, ...]) -> int:
+        total = 0
+        for entry_idx, slot in zip(entry_idxs, pairing):
+            name = _name_of(slot)
+            if name:
+                total += int(fuzz.WRatio(entries[entry_idx].name.lower(), name))
+        return total
+
+    as_given = _score(tuple(slots))
+    best = max(permutations(slots), key=_score)
+    best_score = _score(best)
+
+    # Only reorder on a clear win — OCR noise should not shuffle photos.
+    if tuple(best) != tuple(slots) and best_score - as_given >= 15:
+        log.info(
+            "reordering label photos: read names match %s better than %s "
+            "(%d vs %d)", best, slots, best_score, as_given,
+        )
+        return dict(zip(entry_idxs, best))
+    return owners
+
+
 async def _log_meal_dish(
     client: FoodCacheClient,
     dish: MealDish,
@@ -812,10 +942,43 @@ async def orchestrate(
         return result
 
     photos = photos or []
-    photo_cursor = 0
-    meal_photo_consumed = False
 
-    for entry in msg.entries:
+    # Classify every photo ONCE, before the loop, so ownership can be decided
+    # up front. Same number of vision calls as consuming them inside the loop
+    # — the cursor meant each photo was analysed once either way — but the
+    # results are now available before any entry is processed.
+    photo_extracts: list[PhotoExtract] = []
+    label_slots: list[int] = []
+    owners: dict[int, int] = {}
+    if vision_model is not None and photos and _any_entry_can_use_a_photo(msg.entries):
+        for photo in photos:
+            photo_extracts.append(
+                await analyse_photo(vision_model, photo, hint_text=message_text or "")
+            )
+        label_slots = [i for i, e in enumerate(photo_extracts) if e.kind == "label"]
+        meal_slots = [i for i, e in enumerate(photo_extracts) if e.kind == "meal"]
+
+        if meal_slots:
+            # A meal photo describes the whole message, so attribution does
+            # not arise — log its dishes and stop, as before.
+            return await _log_meal_photo(
+                client, photo_extracts[meal_slots[0]], msg, result, context,
+                _resolve_datetime(msg.entries[0].datetime_hint),
+            )
+
+        resolved, candidates = _label_owners(msg.entries, label_slots, photo_extracts)
+        if resolved is None:
+            names = [msg.entries[i].name for i in candidates] or ["that photo"]
+            result.pending_clarification = (
+                "Which item is the photo for — " + " or ".join(names) + "?"
+                if len(names) > 1
+                else f"I couldn't tell which item {names[0]} belongs to — which is it?"
+            )
+            log.info("label attribution ambiguous between %s", names)
+        else:
+            owners = resolved
+
+    for entry_index, entry in enumerate(msg.entries):
         when = _resolve_datetime(entry.datetime_hint)
 
         # ---- SHAPE 6.4: reference to a recently-logged meal (N3) ----
@@ -865,17 +1028,14 @@ async def orchestrate(
                 ))
             continue
 
-        # ---- SHAPE C: label photo (consume next photo in order) ----
-        # Photo attached to this entry is a strong user signal — always prefer
-        # the label's numbers over cache (cache may be stale or for a different
-        # brand of the same food). Silently save_to_cache flag deferred to later
-        # milestones for photo_label rows.
-        if vision_model is not None and photo_cursor < len(photos):
-            photo = photos[photo_cursor]
-            photo_cursor += 1
-            # One vision call decides what the photo is AND extracts from it.
-            extract = await analyse_photo(vision_model, photo, hint_text=message_text or entry.name)
-
+        # ---- SHAPE C: a label photo THIS entry owns ----
+        # Ownership is decided before the loop by _label_owners. An entry that
+        # owns no photo falls straight through to the cache path below —
+        # previously it consumed whatever photo was next and then `continue`d,
+        # so it never logged itself at all.
+        slot = owners.get(entry_index)
+        if slot is not None:
+            extract = photo_extracts[slot]
             if extract.kind == "unclear":
                 log.info("photo unclear for %r: %s", entry.name, extract.unclear_reason)
                 result.unknown.append(UnknownEntry(
@@ -884,60 +1044,6 @@ async def orchestrate(
                 ))
                 continue
 
-            if extract.kind == "meal":
-                # SHAPE D: the photo covers the whole meal. Log one row per
-                # dish the model itemised, then stop — the remaining text
-                # entries are the same dishes the photo already accounted for.
-                if not extract.dishes:
-                    result.unknown.append(UnknownEntry(
-                        name=entry.name,
-                        reason="couldn't identify dishes in that photo",
-                    ))
-                    continue
-                for dish in extract.dishes:
-                    # Cache beats a visual estimate for a food the user has
-                    # already measured — including foods vision invented from
-                    # the message text but could not actually see.
-                    override = await _cache_override_for_dish(client, dish)
-                    if override is not None:
-                        hit, synth = override
-                        dish_row = await _log_from_cache_hit(client, synth, hit, when)
-                        per_unit = {
-                            "kcal": float(hit["kcal_per_unit"]),
-                            "protein": float(hit["protein_per_unit"]),
-                            "fat": float(hit["fat_per_unit"]),
-                            "carbs": float(hit["carbs_per_unit"]),
-                        }
-                        log.info(
-                            "dish %r resolved from cache (%r) instead of the photo "
-                            "estimate: %.0f kcal/unit vs %.0f",
-                            dish.name, hit.get("name"),
-                            per_unit["kcal"], dish.kcal_per_unit,
-                        )
-                    else:
-                        dish_row = await _log_meal_dish(client, dish, when)
-                        per_unit = {
-                            "kcal": dish.kcal_per_unit,
-                            "protein": dish.protein_per_unit,
-                            "fat": dish.fat_per_unit,
-                            "carbs": dish.carbs_per_unit,
-                        }
-                    result.logged.append(dish_row)
-                    log.info(
-                        "logged (%s) %r qty=%s unit=%s kcal_total=%.1f",
-                        dish_row.source,
-                        dish_row.food, dish_row.qty, dish_row.unit, dish_row.kcal_total,
-                    )
-                    if context is not None:
-                        context.recent_entries.append(_snapshot(
-                            name=dish_row.food, qty=dish_row.qty, unit=dish_row.unit,
-                            per_unit=per_unit,
-                            source=dish_row.source,
-                        ))
-                meal_photo_consumed = True
-                break
-
-            # kind == "label" -> SHAPE C
             row = await _log_shape_c_label(client, extract.label or LabelExtract(), entry, when)
             if entry.save_to_cache:
                 row.save_status = "ineligible"  # photo_label save is out-of-scope for N5
@@ -947,8 +1053,7 @@ async def orchestrate(
                 row.food, row.qty, row.unit, row.kcal_total,
             )
             if context is not None:
-                # For label rows the per-unit values ARE per-100g (since unit=100g).
-                # Store as-recorded so a later "save that label" would use per-100g.
+                # For label rows the per-unit values ARE per-100g (unit=100g).
                 context.recent_entries.append(_snapshot(
                     name=row.food, qty=row.qty, unit=row.unit,
                     per_unit={
@@ -1048,10 +1153,84 @@ async def orchestrate(
                 source=row.source,
             ))
 
-    if photo_cursor < len(photos) and not meal_photo_consumed:
-        log.info(
-            "ignored %d unused photo(s) — more photos than eligible entries",
-            len(photos) - photo_cursor,
-        )
+    unclaimed = [i for i in label_slots if i not in owners.values()]
+    if unclaimed:
+        log.info("%d label photo(s) matched no entry", len(unclaimed))
 
+    return result
+
+
+def _any_entry_can_use_a_photo(entries: list[ExtractedEntry]) -> bool:
+    """Would any entry actually reach the photo path?
+
+    Guards the vision call: a message whose entries all carry typed macros
+    or are "save the X I had" requests never consults a photo, and analysing
+    one anyway would spend an LLM call for nothing.
+    """
+    return any(
+        not e.reference_recent and not _is_shape_b(e) for e in entries
+    )
+
+
+async def _log_meal_photo(
+    client: FoodCacheClient,
+    extract: "PhotoExtract",
+    msg: ExtractedMessage,
+    result: OrchestratorResult,
+    context: ChatContext | None,
+    when: str,
+) -> OrchestratorResult:
+    """SHAPE D: one photo of a plated meal accounts for the whole message.
+
+    Attribution does not arise here — the model itemises the plate, so the
+    text entries are the same dishes by another name. Lifted out of the entry
+    loop when ownership moved in front of it.
+    """
+    if not extract.dishes:
+        result.unknown.append(UnknownEntry(
+            name=msg.entries[0].name if msg.entries else "that photo",
+            reason="couldn't identify dishes in that photo",
+        ))
+        return result
+
+    for dish in extract.dishes:
+        # Cache beats a visual estimate for a food the user has
+        # already measured — including foods vision invented from
+        # the message text but could not actually see.
+        override = await _cache_override_for_dish(client, dish)
+        if override is not None:
+            hit, synth = override
+            dish_row = await _log_from_cache_hit(client, synth, hit, when)
+            per_unit = {
+                "kcal": float(hit["kcal_per_unit"]),
+                "protein": float(hit["protein_per_unit"]),
+                "fat": float(hit["fat_per_unit"]),
+                "carbs": float(hit["carbs_per_unit"]),
+            }
+            log.info(
+                "dish %r resolved from cache (%r) instead of the photo "
+                "estimate: %.0f kcal/unit vs %.0f",
+                dish.name, hit.get("name"),
+                per_unit["kcal"], dish.kcal_per_unit,
+            )
+        else:
+            dish_row = await _log_meal_dish(client, dish, when)
+            per_unit = {
+                "kcal": dish.kcal_per_unit,
+                "protein": dish.protein_per_unit,
+                "fat": dish.fat_per_unit,
+                "carbs": dish.carbs_per_unit,
+            }
+        result.logged.append(dish_row)
+        log.info(
+            "logged (%s) %r qty=%s unit=%s kcal_total=%.1f",
+            dish_row.source,
+            dish_row.food, dish_row.qty, dish_row.unit, dish_row.kcal_total,
+        )
+        if context is not None:
+            context.recent_entries.append(_snapshot(
+                name=dish_row.food, qty=dish_row.qty, unit=dish_row.unit,
+                per_unit=per_unit,
+                source=dish_row.source,
+            ))
     return result
