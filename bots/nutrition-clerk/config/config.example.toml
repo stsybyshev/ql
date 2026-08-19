@@ -35,38 +35,12 @@ api_key_env = "ANTHROPIC_API_KEY"
 model = "ollama_chat/gemma3n:e4b"
 api_base = "http://localhost:11434"
 
-# --- Per-turn model routing ---
-# Ordered list, FIRST MATCH WINS. Each rule can require a photo (or forbid one)
-# and/or match the message text against a regex (case-insensitive). If nothing
-# matches, `models.default` is used.
-#
-# Uncomment the block below to enable per-shape routing. The commented layout
-# below sends eating-out photos to Sonnet, label photos to Haiku (cheap OCR),
-# any-other photo defaults to Sonnet, and text-only messages to Haiku. Swap
-# "cloud_haiku" for "local_gemma" once Ollama is running to zero out cost on
-# text-only turns.
-
-# [[models.routing]]
-# name = "eating_out_photo"
-# profile = "cloud_sonnet"
-# requires_photo = true
-# pattern = "\\b(restaurant|cafe|café|diner|bistro|pub|tavern|takeaway|takeout|eating\\s+out|dined\\s+at|dinner\\s+out|had\\s+dinner|had\\s+lunch|for\\s+lunch|for\\s+dinner)\\b"
-
-# [[models.routing]]
-# name = "label_photo"
-# profile = "cloud_haiku"
-# requires_photo = true
-# pattern = "\\b(nutrition|per\\s+100\\s?g|per\\s+serving|kcal\\s+per|label|barcode)\\b"
-
-# [[models.routing]]
-# name = "any_photo_fallback"
-# profile = "cloud_sonnet"
-# requires_photo = true
-
-# [[models.routing]]
-# name = "text_only"
-# profile = "cloud_haiku"     # swap to "local_gemma" once Ollama profile is live
-# requires_photo = false
+# --- [[models.routing]] is DEAD (removed at N7) ---
+# It swapped the model for the WHOLE agent tree per turn, which only made
+# sense for the old autonomous-agent pipeline. The workflow picks a model per
+# NODE instead — see [nodes] below — so a routing rule here does nothing.
+# The key is still parsed so old config files load; a non-empty list logs a
+# warning at startup.
 
 # --- Per-turn tracing ---
 # One JSONL record per inbound message: inputs, every node with timings, the

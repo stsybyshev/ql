@@ -1,8 +1,9 @@
 """Unit tests for workflow.router — the food/other gate in front of the extractor.
 
-The workflow router had NO test file before 17-08-2026; tests/unit/test_router.py
-covers the legacy ADK ModelRouter, which is a different thing entirely. That
-gap is how the silent-decline bug below survived.
+The workflow router had NO test file before 17-08-2026. The file named
+test_router.py covered the legacy ADK ModelRouter — a different thing
+entirely, deleted at N7 — so the name looked taken while the real router went
+untested. That gap is how the silent-decline bug below survived.
 """
 from __future__ import annotations
 

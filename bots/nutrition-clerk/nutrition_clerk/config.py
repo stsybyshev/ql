@@ -1,3 +1,4 @@
+import logging
 import os
 import tomllib
 from pathlib import Path
@@ -61,6 +62,10 @@ class ModelSettings(BaseModel):
         }
     )
     # Ordered list; first match wins. Empty (default) = always use `default` profile.
+    # DEAD since N7: this drove ModelRouter, which swapped the model for the
+    # whole agent tree per turn. The workflow selects per NODE (see NodeSettings)
+    # so rules here have no effect. Kept so existing config files still load —
+    # load_config warns when it is non-empty rather than ignoring it silently.
     routing: list[RoutingRule] = Field(default_factory=list)
 
     def active_profile_name(self) -> str:
@@ -208,4 +213,12 @@ def load_config(path: Path | None = None) -> Config:
         return Config()
     with path.open("rb") as f:
         data = tomllib.load(f)
-    return Config(**data)
+    config = Config(**data)
+    if config.models.routing:
+        logging.getLogger("nutrition_clerk.config").warning(
+            "[[models.routing]] has %d rule(s) but is DEAD since N7 — it drove "
+            "the removed ModelRouter and is ignored. Use [nodes] "
+            "(extractor_profile / vision_profile / knowledge_profile) instead.",
+            len(config.models.routing),
+        )
+    return config

@@ -6,20 +6,11 @@ import signal
 import sys
 from collections.abc import Awaitable, Callable
 
-from nutrition_clerk.agents import (
-    AgentPipeline,
-    ModelRouter,
-    build_meal_agent,
-    build_polite_decline_agent,
-    build_root_agent,
-)
 from nutrition_clerk.channels import Channel, InboundEvent
 from nutrition_clerk.channels.stub import StubChannel
 from nutrition_clerk.channels.telegram import TelegramChannel
 from nutrition_clerk.config import Config, load_config
-from nutrition_clerk.model import build_model
 from nutrition_clerk.persistence import Idempotency
-from nutrition_clerk.tools import build_food_mcp_toolset
 
 log = logging.getLogger("nutrition_clerk")
 
@@ -85,42 +76,6 @@ def _build_channel(config: Config) -> Channel:
     return StubChannel()
 
 
-def build_agent_pipeline(config: Config) -> AgentPipeline:
-    """Assemble the ADK agent graph and return a handler-friendly pipeline.
-
-    Behavior depends on whether `models.routing` is empty:
-    - Empty (default): single-model pipeline using the active profile
-      (defaults to `cloud_haiku`; env override NUTRITION_CLERK_PROFILE).
-    - Non-empty: per-turn dispatch — the same agent tree stays alive, but
-      its model is swapped in place at each turn based on the first
-      routing rule that matches.
-    """
-    router: ModelRouter | None = None
-    if config.models.routing:
-        router = ModelRouter(config.models)
-        log.info(
-            "routing enabled: %d rule(s); default profile %r",
-            len(config.models.routing),
-            config.models.default,
-        )
-        # Use the default profile as the seed model — router will swap on first turn.
-        initial_model = build_model(config.models.profiles[config.models.default])
-    else:
-        profile = config.models.active_profile()
-        log.info("single-model mode: %s -> %s", config.models.active_profile_name(), profile.model)
-        initial_model = build_model(profile)
-
-    food_tools = build_food_mcp_toolset(config.mcp.food_tracker)
-    polite = build_polite_decline_agent(initial_model)
-    meal = build_meal_agent(
-        initial_model,
-        toolsets=[food_tools],
-        log_dir=config.mcp.food_tracker.resolved_log_dir(),
-    )
-    root = build_root_agent(initial_model, sub_agents=[meal, polite])
-    return AgentPipeline(root_agent=root, router=router)
-
-
 def _install_signal_handlers(loop: asyncio.AbstractEventLoop, stop_event: asyncio.Event) -> None:
     def _stop() -> None:
         stop_event.set()
@@ -150,8 +105,6 @@ async def _amain() -> None:
     config = load_config()
     channel = _build_channel(config)
 
-    # N1 pivot: prefer the new workflow handler. Old build_agent_pipeline path
-    # kept alive for tests during N1-N6 migration; deleted at N7.
     from nutrition_clerk.workflow import build_handler
 
     handler, cache_client = build_handler(config)
