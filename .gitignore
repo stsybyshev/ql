@@ -28,3 +28,7 @@ __pycache__/
 # Personal food cache — records what the user actually eats. Kept local.
 # A committed template (personal-foods.example.yaml) seeds a fresh install.
 personal-foods.yaml
+
+# Real food logs — timestamped meals are personal data. Small synthetic
+# fixtures under tests/fixtures/ stay tracked; generated months do not.
+skills/nutrition-tracker/dist/openclaw-food-tracker/assets/*.md
