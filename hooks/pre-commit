@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Run the offline unit suites for whatever is being committed.
+#
+# UNIT TESTS ONLY. Nothing here may touch a live LLM API — see CLAUDE.md
+# ("Tests cost real money"). Two things enforce that:
+#   1. Suites are named explicitly below; tests/integration is never invoked.
+#   2. ANTHROPIC_API_KEY is unset for the run, so any live test that sneaks
+#      into a unit path skips instead of spending money.
+#
+# Suites are scoped by path: editing the portal doesn't run the bot's tests.
+# Bypass for a work-in-progress commit with:  git commit --no-verify
+set -uo pipefail
+
+REPO="$(git rev-parse --show-toplevel)"
+STAGED="$(git diff --cached --name-only --diff-filter=ACM)"
+[ -z "$STAGED" ] && exit 0
+
+fail=0
+ran=0
+
+# Runs a suite when any staged path sits under $1.
+#   $1 path prefix   $2 label   $3... command (executed from $REPO/$1)
+run_suite() {
+  local prefix="$1" label="$2"; shift 2
+  grep -q "^${prefix}/" <<<"$STAGED" || return 0
+  ran=1
+  printf '  %-22s ' "$label"
+  local out
+  # `env -u` is the money guard: live tests skipif on a missing key.
+  if out=$(cd "$REPO/$prefix" && env -u ANTHROPIC_API_KEY timeout 120 "$@" 2>&1); then
+    printf '%s\n' "$(tail -1 <<<"$out")"
+  else
+    printf 'FAILED\n\n'
+    printf '%s\n' "$out" | tail -30
+    fail=1
+  fi
+}
+
+echo "pre-commit: unit tests (offline)"
+
+run_suite "bots/nutrition-clerk" "nutrition-clerk" \
+  uv run pytest tests/unit -q
+
+# `uv run pytest` fails here: the venv's pytest shebang still points at the
+# pre-monorepo path (/home/stan/dev/openclaw-food-tracking/...). `python -m`
+# ignores the shebang and works.
+run_suite "skills/nutrition-tracker/mcp-server/food-tracker" "food-tracker" \
+  ./.venv/bin/python -m pytest -q
+
+[ "$ran" = 0 ] && echo "  (no test-backed paths staged)"
+
+if [ "$fail" != 0 ]; then
+  cat >&2 <<'EOF'
+
+Commit aborted: unit tests failed.
+Fix them, or bypass deliberately with:  git commit --no-verify
+EOF
+  exit 1
+fi
+exit 0
