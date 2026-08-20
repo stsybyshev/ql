@@ -388,6 +388,19 @@
   notes: "1 whole cucumber (~300g), default is half"
   source: seed
 
+- name: cucumber
+  aliases: [cucumbers]
+  qty_default: 1
+  unit: 100g
+  kcal_per_unit: 15
+  protein_per_unit: 0.67
+  fat_per_unit: 0.1
+  carbs_per_unit: 3.67
+  notes: "Per 100g. Same food as the per-cucumber entry above (~300g whole);
+    values derived from it so the two agree. Two entries with one name is
+    deliberate — the unit you use picks the right one."
+  source: seed
+
 - name: bell pepper
   aliases: [capsicum, red pepper, green pepper, yellow pepper, sweet pepper]
   qty_default: 1

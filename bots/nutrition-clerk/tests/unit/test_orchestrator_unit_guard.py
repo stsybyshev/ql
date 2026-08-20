@@ -252,3 +252,46 @@ def test_question_never_offers_two_identical_labels():
         offered = question.replace("Did you mean ", "").rstrip("?").split(" or ")
         assert len(set(offered)) == len(offered), f"indistinguishable options: {question}"
         assert "100g" in question and "cup" in question
+
+
+# --- exact name outranks the unit; the unit breaks a name tie (20-08-2026) ---
+#
+# The MCP is a substring matcher, so "salmon traybake" also returns plain
+# "salmon". Filtering on unit alone would keep the per-100g fish and log a
+# traybake as salmon. Name first, then unit as the tiebreak.
+
+SALMON = {"name": "salmon", "aliases": [], "unit": "100g", "qty_default": 1,
+          "kcal_per_unit": 208, "protein_per_unit": 20.0,
+          "fat_per_unit": 13.0, "carbs_per_unit": 0.0}
+TRAYBAKE = {"name": "salmon traybake", "aliases": ["salmon tray bake"],
+            "unit": "serving", "qty_default": 1, "kcal_per_unit": 1070,
+            "protein_per_unit": 57.0, "fat_per_unit": 69.0, "carbs_per_unit": 58.0}
+
+
+def test_exact_name_outranks_a_unit_compatible_substring_match():
+    """"300g salmon traybake" must not resolve to plain salmon."""
+    entry = ExtractedEntry(name="Salmon traybake", qty=300, unit="g")
+    kept = _usable_hits(entry, [SALMON, TRAYBAKE])
+    assert SALMON not in kept, "unit compatibility beat an exact name match"
+
+
+def test_exact_name_wins_when_its_unit_does_fit():
+    entry = ExtractedEntry(name="Salmon traybake", qty=1, unit="serving")
+    assert _usable_hits(entry, [SALMON, TRAYBAKE]) == [TRAYBAKE]
+
+
+def test_a_plain_name_still_reaches_its_own_entry():
+    entry = ExtractedEntry(name="Salmon", qty=200, unit="g")
+    assert _usable_hits(entry, [SALMON, TRAYBAKE]) == [SALMON]
+
+
+@pytest.mark.parametrize("qty, unit, expected_unit", [
+    (160, "g", "100g"),      # weight -> the per-100g twin
+    (1, "cup", "cup"),       # a cup   -> the per-cup twin
+    (None, None, "cup"),     # bare    -> one normal helping
+])
+def test_unit_breaks_a_tie_between_identically_named_entries(qty, unit, expected_unit):
+    """Personal 'buckwheat' is per-100g; popular 'buckwheat' is per-cup."""
+    entry = ExtractedEntry(name="Buckwheat", qty=qty, unit=unit)
+    kept = _usable_hits(entry, [BUCKWHEAT_100G, BUCKWHEAT_CUP])
+    assert [h["unit"] for h in kept] == [expected_unit]

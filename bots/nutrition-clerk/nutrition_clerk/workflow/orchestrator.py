@@ -540,26 +540,46 @@ def _usable_hits(entry: ExtractedEntry, hits: list[dict[str, Any]]) -> list[dict
     only the count is unmappable, which `_apply_100g_rule` resolves with the
     entry's own `qty_default`.
     """
+    # Priority, highest first:
+    #
+    #   1. A hit the user named EXACTLY (name or alias) is the food they meant.
+    #      This has to outrank the unit: the MCP is a substring matcher, so
+    #      "300g salmon traybake" returns both "salmon traybake" (per serving)
+    #      and plain "salmon" (per 100g). The unit alone would pick salmon and
+    #      log a traybake as fish.
+    #   2. When the name cannot discriminate -- several hits matched exactly, or
+    #      scores sit inside the ambiguity margin -- the user's UNIT decides.
+    #      Personal "buckwheat" is per-100g and popular "buckwheat" is per-cup;
+    #      "160g" means the first, "1 cup" the second.
+    #   3. Whatever survives must still be able to carry the quantity.
+    exact = [h for h in hits if _names_match_exactly(entry.name, h)]
+    pool = exact if exact else hits
+
+    if len(pool) > 1:
+        compatible = [
+            h for h in pool if _units_compatible(entry.unit, h.get("unit"), entry.qty)
+        ]
+        if compatible and len(compatible) < len(pool):
+            log.info(
+                "%r: %d of %d equally-named hit(s) match unit %r — taking those",
+                entry.name, len(compatible), len(pool), entry.unit or "-",
+            )
+            pool = compatible
+
     kept = []
-    for hit in hits:
+    for hit in pool:
         if _units_compatible(entry.unit, hit.get("unit"), entry.qty):
             kept.append(hit)
         elif _names_match_exactly(entry.name, hit) and not _is_weight(entry.unit):
-            # Rescue only when the user's quantity counts something the cache
-            # does not measure ("3 eggs" against a per-SERVING omelette) — there
-            # the number is unmappable and qty_default is the best we have.
-            #
-            # A WEIGHT is different: it is exact, transferable information, and
-            # falling back to qty_default throws it away. "200g cucumber" against
-            # a per-cucumber entry logged 0.5 cucumber and silently dropped the
-            # 200g; "160g buckwheat" pulled a per-cup entry back in beside the
-            # per-100g one and asked "buckwheat or buckwheat?". Dropping the hit
-            # sends it to the knowledge estimator, which honours the grams.
+            # Rescue only when the quantity counts something the cache cannot
+            # measure ("3 eggs" against a per-SERVING omelette). A WEIGHT is
+            # exact and must not be traded for qty_default -- that logged
+            # "200g cucumber" as half a cucumber. Dropping sends it to the
+            # estimator, which honours the grams.
             kept.append(hit)
         else:
             log.info(
-                "dropping cache hit %r for %r: unit %r cannot hold %s %s "
-                "and the name is not an exact match",
+                "dropping cache hit %r for %r: unit %r cannot hold %s %s",
                 hit.get("name"), entry.name, hit.get("unit"),
                 entry.qty, entry.unit or "-",
             )
