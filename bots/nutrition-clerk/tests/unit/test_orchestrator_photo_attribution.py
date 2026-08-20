@@ -191,3 +191,65 @@ async def test_single_weighted_entry_resolves_without_a_marker(
     assert yog["source"] == "photo_label"
     assert abs(yog["qty"] - 0.3) < 1e-9
     assert calls["Spanish eggs"]["source"] == "cache_lookup"
+
+
+# --- label photos of DRINKS (20-08-2026) ---
+#
+# "Dinner: ... And 1 pint Lucky Saint non alcoholic lager (photo attached)."
+# logged as 1 x 100g, 0 kcal. Two independent faults:
+#
+#   1. Vision read the label correctly but named its fields per-100ML, because
+#      that is how drinks are labelled — it even said so in confidence_note.
+#      LabelExtract only had per-100g fields, so Pydantic dropped the values
+#      and every macro defaulted to 0.
+#   2. The quantity branch understood only grams, so "1 pint" fell into a
+#      silent "assume one 100g portion" default. A UK pint is 568ml, so even
+#      with correct macros that is a 5.7x undercount.
+
+from nutrition_clerk.workflow.orchestrator import _label_quantity  # noqa: E402
+
+
+def test_per_100ml_label_is_not_silently_zeroed():
+    """A beverage label must survive validation with its values intact."""
+    label = LabelExtract.model_validate({
+        "label_name": None, "kcal_per_100ml": 16, "protein_per_100ml": 0.64,
+        "fat_per_100ml": 0.0, "carbs_per_100ml": 1.5,
+    })
+    assert label.kcal_per_100g == 16, "per-100ml keys were dropped"
+    assert label.protein_per_100g == 0.64
+    assert label.carbs_per_100g == 1.5
+
+
+def test_per_100g_label_is_unaffected_by_the_alias():
+    """The Manchego/kipper path must not change."""
+    label = LabelExtract.model_validate({
+        "kcal_per_100g": 244, "protein_per_100g": 16.0,
+        "fat_per_100g": 18.7, "carbs_per_100g": 2.7,
+    })
+    assert (label.kcal_per_100g, label.protein_per_100g) == (244, 16.0)
+
+
+@pytest.mark.parametrize("qty, unit, exp_qty, exp_unit", [
+    (1, "pint", 5.68, "100ml"),      # UK pint = 568ml, NOT the US 473ml
+    (0.5, "pint", 2.84, "100ml"),
+    (330, "ml", 3.3, "100ml"),
+    (1, "l", 10.0, "100ml"),
+    (200, "g", 2.0, "100g"),         # the grams path must not regress
+    (30, "g", 0.3, "100g"),
+])
+def test_label_is_scaled_by_the_stated_measure(qty, unit, exp_qty, exp_unit):
+    got_qty, got_unit, assumed = _label_quantity(
+        ExtractedEntry(name="x", qty=qty, unit=unit)
+    )
+    assert (round(got_qty, 4), got_unit) == (exp_qty, exp_unit)
+    assert assumed is False
+
+
+@pytest.mark.parametrize("qty, unit", [(1, "can"), (1, "bottle"), (None, None)])
+def test_unscalable_measures_are_flagged_not_silently_defaulted(qty, unit):
+    """"can" and "bottle" vary by product — assume, but say so."""
+    got_qty, got_unit, assumed = _label_quantity(
+        ExtractedEntry(name="x", qty=qty, unit=unit)
+    )
+    assert (got_qty, got_unit) == (1.0, "100g")
+    assert assumed is True, "an invented portion must be visible to the user"

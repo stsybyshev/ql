@@ -348,6 +348,47 @@ async def _log_shape_b(
     )
 
 
+# Volume measures a label photo can be scaled by, in millilitres. Only
+# UNAMBIGUOUS ones belong here — "can" and "bottle" are deliberately absent
+# because they vary by product, and inventing a number is what this table
+# exists to stop.
+#
+# UK pint (568ml), not US (473ml). Getting that wrong is a silent 20% error.
+_ML_PER_UNIT = {
+    "ml": 1.0, "millilitre": 1.0, "milliliter": 1.0,
+    "cl": 10.0,
+    "l": 1000.0, "litre": 1000.0, "liter": 1000.0,
+    "pint": 568.0, "pints": 568.0,
+    "half pint": 284.0, "half-pint": 284.0,
+}
+
+
+def _label_quantity(entry: ExtractedEntry) -> tuple[float, str, bool]:
+    """Scale a label's per-100 values by what the user actually said.
+
+    Returns (qty, unit, assumed). `assumed` is True when we could not derive a
+    quantity and fell back to a single 100g portion — the caller marks the row
+    so the reply says so out loud.
+
+    A silent fallback here is what logged "1 pint Lucky Saint" as 1 x 100g:
+    the branch only understood grams, so every volume landed on the default.
+    """
+    qty = entry.qty
+    unit = (entry.unit or "").strip().lower()
+
+    if qty is not None:
+        if unit in ("g", "gram", "grams"):
+            return float(qty) / 100.0, "100g", False
+        if unit in _ML_PER_UNIT:
+            ml = float(qty) * _ML_PER_UNIT[unit]
+            return ml / 100.0, "100ml", False
+
+    log.info(
+        "SHAPE C: cannot scale label by %s %r for %r — assuming one 100g portion",
+        qty, unit or "-", entry.name,
+    )
+    return 1.0, "100g", True
+
 async def _log_shape_c_label(
     client: FoodCacheClient,
     label: LabelExtract,
@@ -364,20 +405,7 @@ async def _log_shape_c_label(
     # Choose display name: label's if it read one, else user's hint.
     food_name = (label.label_name or entry.name).strip()
 
-    # Quantity: expect grams in the user text for label-photo flow.
-    user_qty = entry.qty
-    user_unit = (entry.unit or "").strip().lower()
-    if user_unit in ("g", "gram", "grams") and user_qty is not None:
-        qty = float(user_qty) / 100.0
-        unit = "100g"
-    else:
-        # No gram quantity — assume the user ate one 100g portion. Log with
-        # confidence downgrade because portion is a guess. User can correct.
-        qty = 1.0
-        unit = "100g"
-        log.info(
-            "SHAPE C: no gram qty for %r; defaulting to qty=1 unit=100g", entry.name
-        )
+    qty, unit, assumed_portion = _label_quantity(entry)
 
     response = await client.log_food(
         datetime=when,
@@ -389,7 +417,8 @@ async def _log_shape_c_label(
         fat_per_unit=float(label.fat_per_100g),
         carbs_per_unit=float(label.carbs_per_100g),
         source="photo_label",
-        confidence=0.85,
+        # An assumed portion is a guess about quantity, not about the label.
+        confidence=0.6 if assumed_portion else 0.85,
     )
     row = response.get("entry", {})
     return LoggedRow(
@@ -401,6 +430,8 @@ async def _log_shape_c_label(
         fat_total=float(row.get("fat_total", qty * float(label.fat_per_100g))),
         carbs_total=float(row.get("carbs_total", qty * float(label.carbs_per_100g))),
         source="photo_label",
+        # Say so in the reply — the portion was invented, the macros were not.
+        estimated=assumed_portion,
         today_totals=response.get("today", {}),
     )
 

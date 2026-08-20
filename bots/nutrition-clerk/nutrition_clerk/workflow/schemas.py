@@ -13,7 +13,7 @@ fields to populate for which pattern.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ExtractedEntry(BaseModel):
@@ -158,7 +158,34 @@ class KnowledgeExtract(BaseModel):
 class LabelExtract(BaseModel):
     """Per-100g nutrition values extracted by the vision enricher from a
     packaging label photo. Fields deliberately mirror what a UK/EU nutrition
-    panel lists — one row per macro."""
+    panel lists — one row per macro.
+
+    Drinks are labelled PER 100ML, and the model names its fields after what it
+    reads: a Lucky Saint lager label came back as `kcal_per_100ml: 16` with the
+    note "this is a beverage label showing nutrition per 100ml, not per 100g".
+    Pydantic ignored the unknown keys, every macro defaulted to 0, and a
+    correctly-read label logged as zero calories. `model_validate` now folds
+    per-100ml keys onto the per-100g fields — for a drink the two bases are
+    equivalent to within the density of water, which is the assumption the
+    label itself is making.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_per_100ml_keys(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        for macro in ("kcal", "protein", "fat", "carbs"):
+            ml, g = f"{macro}_per_100ml", f"{macro}_per_100g"
+            # Only fill a field the model did not already give us per-100g.
+            if ml in out and out.get(g) in (None, 0):
+                out[g] = out.pop(ml)
+            else:
+                out.pop(ml, None)
+        return out
 
     label_name: str | None = Field(
         default=None,
