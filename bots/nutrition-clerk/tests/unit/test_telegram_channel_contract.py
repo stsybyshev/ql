@@ -69,3 +69,12 @@ def test_constructor_creates_photo_dir(tmp_path):
     photo_dir = tmp_path / "nested" / "photos"
     TelegramChannel(token="123:ABC", photo_dir=photo_dir)
     assert photo_dir.is_dir(), "photo_dir should be created eagerly at construction"
+
+
+def test_media_group_id_exists_on_installed_ptb():
+    """Album assembly reads msg.media_group_id — pin it against a PTB upgrade."""
+    from telegram import Message
+    assert hasattr(Message, "media_group_id"), (
+        "python-telegram-bot no longer exposes Message.media_group_id; "
+        "TelegramChannel album assembly depends on it."
+    )
