@@ -84,7 +84,17 @@ async def _handle(
         return POLITE_DECLINE_TEXT
     trace.record("router", route="food", resuming=bool(prev_question))
 
+    # Tell the extractor a photo is attached. It never sees images, so without
+    # this it asks for a quantity that the photo is there to supply.
     extractor_input = text
+    if has_photo:
+        n = len(event.photos)
+        extractor_input = (
+            f"[{n} PHOTO{'S' if n > 1 else ''} ATTACHED]\n"
+            "A photo accompanies this message. Do NOT ask how much of a food "
+            "there is — the photo answers that. Emit the entries with qty/unit "
+            "null when the user did not state them.\n\n" + text
+        )
     resuming = False
     if prev_question:
         resuming = True
@@ -126,6 +136,19 @@ async def _handle(
         return POLITE_DECLINE_TEXT
 
     # N4: extractor-emitted clarification (message too vague to parse).
+    if extracted.clarification_question and has_photo:
+        # The extractor is TEXT-ONLY, so it cannot see that a photo is attached
+        # and will ask "how much?" for a meal it cannot measure. That is the one
+        # question a photo exists to answer: "Log my lunch: potato and artichoke
+        # salad" + a photo of the plate returned the question and never ran
+        # vision at all, because this branch returns before the orchestrator.
+        # Photos win — the orchestrator asks its own question if vision fails.
+        log.info(
+            "extractor asked %r but %d photo(s) are attached — trying vision first",
+            extracted.clarification_question, len(event.photos),
+        )
+        extracted.clarification_question = None
+
     if extracted.clarification_question:
         log.info(
             "extractor asked for clarification: %r", extracted.clarification_question

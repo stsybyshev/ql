@@ -655,6 +655,19 @@ async def _cache_override_for_dish(
     hits = await client.lookup_food(dish.name)
     if not hits:
         return None
+    # The override must be the SAME food, not a substring of it. lookup_food is
+    # a substring matcher, so a plated "potato and artichoke salad" returns the
+    # per-potato entry, and a generic "serving" unit at qty=1 is compatible with
+    # anything — so vision's correct 181 kcal salad was overwritten by a 103 kcal
+    # potato. This is the same fault fixed in _usable_hits for "salmon traybake"
+    # vs "salmon"; this path never got it.
+    #
+    # Exact match only. The dish name comes from a model, not a typing user, so
+    # a near-miss is far likelier to be a different food than a typo.
+    hits = [h for h in hits if _names_match_exactly(dish.name, h)]
+    if not hits:
+        return None
+
     top, question = _disambiguate_cache_hits(dish.name, hits)
     if question is not None:
         log.info(

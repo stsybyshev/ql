@@ -226,3 +226,66 @@ def test_gram_label_on_a_portion_count_is_not_divided():
     qty, unit, per_unit = _normalise_dish_weight(dish)
     assert (qty, unit) == (1.0, "100g")
     assert qty * per_unit["kcal"] == 400, "must not divide down to 4 kcal"
+
+
+# --- a dish override must be the SAME food (21-08-2026) ---
+#
+# "Log my lunch: potato and artichoke salad" + a photo of the plate.
+# Vision read it correctly (1 serving, 181 kcal, confidence 0.9), but
+# lookup_food is a substring matcher: "potato" sits inside "potato and
+# artichoke salad", and a generic "serving" unit at qty=1 is compatible with
+# anything, so the per-potato entry overrode the salad and logged 103 kcal.
+#
+# Same fault as "salmon traybake" vs "salmon", which was fixed in
+# _usable_hits. This path had its own lookup and never got it.
+
+POTATO = {
+    "name": "potato", "aliases": ["potatoes"],
+    "unit": "potato", "qty_default": 1, "kcal_per_unit": 103,
+    "protein_per_unit": 2.3, "fat_per_unit": 0.1, "carbs_per_unit": 24.0,
+}
+
+
+@pytest.mark.asyncio
+async def test_substring_cache_entry_does_not_override_a_composite_dish(
+    monkeypatch, tmp_path
+):
+    _patch_vision(monkeypatch, [
+        MealDish(name="potato and artichoke salad", qty=1, unit="serving",
+                 kcal_per_unit=181, protein_per_unit=0, fat_per_unit=0,
+                 carbs_per_unit=0, confidence=0.9),
+    ])
+    client = _FakeClient({"potato and artichoke salad": [POTATO]})
+
+    await orchestrate(
+        ExtractedMessage(entries=[ExtractedEntry(name="Potato and artichoke salad")]),
+        client,
+        photos=[tmp_path / "salad.jpg"],
+        vision_model=object(),
+    )
+
+    call = _log_kwargs_by_food(client)["potato and artichoke salad"]
+    assert call["source"] == "photo_estimate", "a substring match overrode the dish"
+    assert call["kcal_per_unit"] == 181
+
+
+@pytest.mark.asyncio
+async def test_exactly_named_dish_still_takes_the_cache(monkeypatch, tmp_path):
+    """The cappuccino fix must keep working — exact names still override."""
+    _patch_vision(monkeypatch, [
+        MealDish(name="cappuccino", qty=1, unit="cup", kcal_per_unit=120,
+                 protein_per_unit=4.0, fat_per_unit=3.5, carbs_per_unit=10.0,
+                 confidence=0.4),
+    ])
+    client = _FakeClient({"cappuccino": [CAPPUCCINO]})
+
+    await orchestrate(
+        ExtractedMessage(entries=[ExtractedEntry(name="Coffee")]),
+        client,
+        photos=[tmp_path / "cafe.jpg"],
+        vision_model=object(),
+    )
+
+    call = _log_kwargs_by_food(client)["cappuccino"]
+    assert call["source"] == "cache_lookup"
+    assert call["kcal_per_unit"] == 80
