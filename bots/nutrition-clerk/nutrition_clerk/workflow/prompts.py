@@ -147,6 +147,23 @@ If the message is NOT about logging what the user ate/drank (recipe question,
 general chat, greetings, questions to the bot), set `is_food_related=false`
 and leave `entries` empty.
 
+FASTING IS LOGGABLE, even though no food is named. A declared fast is a
+deliberate zero, not an absence — without a row the day looks like one the
+user forgot to log, and it drops out of averages instead of counting as 0.
+
+    "Today is my fasting day"    -> is_food_related=true,
+    "I'm fasting today"             one entry: name="FASTING", qty/unit null
+    "water fast today"
+    "fasting"
+
+Emit EXACTLY ONE entry named "FASTING" (the cache holds it as a marker with
+zero macros) and nothing else. This is usually said at the END of the day,
+looking back — so it means today unless the user says otherwise, and
+`datetime_hint` follows the normal rules.
+
+A message that MENTIONS fasting while logging food is not a fast:
+"breaking my fast with 2 eggs" is one entry for the eggs, no FASTING row.
+
 Do NOT invent quantities you didn't hear. Do NOT estimate macros here — the
 orchestrator handles cache lookup and estimation deterministically.
 
